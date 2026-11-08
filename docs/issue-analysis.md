@@ -62,6 +62,13 @@ từ chối; /scan và toàn bộ offline flow vẫn scaffold. Không thể coi 
 
 ## Kết quả kiểm chứng môi trường
 
-Chưa chạy được pytest/Ruff: python là alias Store và py launcher trỏ Python312 không tồn tại.
-Cần Python 3.12 cùng dependencies trong pyproject.toml; chạy scripts/validate.ps1 trước review.
-Các test QR là mã kiểm thử đã bàn giao, chưa có bằng chứng thực thi pass.
+Ngày 08/11/2026: đã khôi phục Python 3.12.10 và tạo .venv với dependencies dự án.
+Chạy pytest: 55 passed, 6 skipped; riêng QR: 18 passed. Sáu test skipped thuộc
+access/offline chưa triển khai; không tính là thành công. Có một cảnh báo deprecation
+của Starlette TestClient/httpx. Đã sửa import và format của ba file QR sau lần kiểm tra đầu.
+Lệnh chạy tests: .venv/Scripts/python.exe -m pytest.
+Nguyên nhân ban đầu: python trỏ alias Microsoft Store, py đăng ký đường dẫn Python312
+không còn file thực thi; không phải lỗi dependencies hay logic QR.
+
+Validation đầy đủ: scripts/validate.ps1 đã pass (lint, format, workflow, secret scan,
+tests: 55 passed, 6 skipped), dùng PATH của .venv/Scripts trong phiên chạy.
