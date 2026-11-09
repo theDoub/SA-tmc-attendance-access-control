@@ -41,7 +41,6 @@ with inward layered dependencies**:
 - The **configuration/composition root** is the only place that assembles
   concrete implementations into the object graph.
 
-
 ```mermaid
 flowchart LR
     P["presentation.api<br/>FastAPI / scan boundary"] --> A["application<br/>AccessCoordinator / SyncService"]
@@ -70,7 +69,7 @@ mobile application modules are not included in this repository.
 
 ## 3. Element catalog
 
-| Package or element               | Responsibility and key elements                                                                                                                                               | Depends on                                                                | A1 mapping                            | Owner            | 
+| Package or element               | Responsibility and key elements                                                                                                                                               | Depends on                                                                | A1 mapping                            | Owner            |
 |----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|---------------------------------------|------------------|
 | `domain/models`                  | Lifecycle data and result types: `ScanInput`, `AccessAttempt`, `AccessDecision`, `VerifiedCredential`, `GateCommandResult`, `PassageStatus`, `AttendanceRecord`, `SyncResult` | Standard-library types only and other domain models                       | Tables 16, 25, 30; section 5.3.2      | Shared contract  |
 | `domain/interfaces`              | Seven ports: `QrValidator`, `ReplayGuard`, `AccessPolicyEngine`, `GateAdapter`, `AttendanceRepository`, `OutboxRepository`, `SyncClient`                                      | `domain.models`, `Protocol`                                               | Figure 6 interfaces; Tables 16 and 31 | Khai (Contracts) |

@@ -144,8 +144,6 @@ key directory. A deployment may resolve these paths below an application root
 such as `/opt/tmc_access`, but that root and the service account are not
 specified by the repository.
 
-
-
 ```text
 <kiosk application root>/
 ├── .env                       # local settings; deployment secret material
