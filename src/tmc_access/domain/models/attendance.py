@@ -9,6 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from tmc_access.domain.models.access import Direction
+from tmc_access.domain.models.gate import GateAck
 from tmc_access.domain.models.sync import SyncStatus
 
 
@@ -36,5 +37,9 @@ class AttendanceRecord:
     direction: Direction
     event_time: datetime
     confirmation_evidence: ConfirmationEvidence
+    # A1 section 3.5.5 / Table 16: actual source metadata supplied by the caller.
+    source_sequence: int
+    policy_version: str
+    controller_outcome: GateAck
     time_quality: TimeQuality = TimeQuality.RELIABLE
     sync_status: SyncStatus = SyncStatus.PENDING
