@@ -72,6 +72,16 @@ flowchart TB
     Browser -. HTTPS .-> Hub
 ```
 
+### Diagram Legend
+
+- **Outer subgraph box:** Physical deployment zone or location boundary.
+- **Inner rectangular node:** Physical computing device or hardware controller.
+- **Cylinder / inner box:** Durable file on local disk or execution runtime.
+- **Solid line:** Local physical hardware or OS bus connection, such as USB,
+  serial, GPIO, or LAN.
+- **Dashed line:** Network transport across physical zones or optical
+  presentation.
+
 ## 2. Physical node and execution-environment catalog
 
 | Zone | Node | Hardware / operating environment | Allocated software or data | Allocation status |

@@ -53,6 +53,14 @@ flowchart LR
     C --> D
 ```
 
+### Diagram Legend
+
+- **Rectangular box:** Static implementation unit or Python package
+  (`tmc_access.*`).
+- **Solid arrow (`A → B`):** Compile-time import dependency; `A` imports `B`.
+- **Layer boundary:** Inward dependency rule:
+  `presentation → application → domain ← infrastructure`.
+
 The arrows represent compile-time imports. Runtime control may flow through a
 domain port to an infrastructure adapter, but the domain never imports the
 adapter.
