@@ -1,6 +1,10 @@
 # TMC QR-based Attendance and Access Control: Edge Gate Access Processing
 
-> **Status: repository scaffold only.** Contracts, structure, tooling, a deterministic mock turnstile and smoke tests exist. **The Edge access, QR verification, persistence, outbox and synchronization logic are NOT implemented yet.** Unimplemented code raises `NotImplementedError`; pending test scenarios are skipped and are not passes.
+> **Status: Edge access core implemented; other components remain scaffolded.** Contracts,
+> structure, tooling, access policy evaluation, access-flow orchestration, a deterministic mock
+> turnstile and unit tests exist. QR verification, SQLite repositories, outbox and synchronization
+> are not implemented yet. Their unfinished paths raise `NotImplementedError`; pending scenarios
+> are skipped and are not passes.
 
 ## 1. Project Title
 TMC QR-based Attendance and Access Control System: Assignment 2 (Edge Gate Access Processing module).
@@ -156,7 +160,12 @@ ADR-00N: Title | Status (Proposed/Accepted/Superseded) | Context | Decision | Co
 Resolve open decisions (OD-nn) by recording the outcome and updating affected contracts and tests in the same PR.
 
 ## 21. Known Limitations / Open Decisions
-No business logic yet. Blocking decisions: OD-01 QR signing/issuance, OD-02 payload claims, OD-04 write ordering around unlock, OD-05 ack-only attendance, OD-08 replay-state storage, OD-10 Edge→Hub authentication, OD-11 persistence schema, OD-13 vendor turnstile API. Non-blocking: OD-03, 06, 07, 09, 12. Details: [decisions.md](docs/architecture/decisions.md#open-decisions).
+The Edge access core follows the documented OD-04/OD-05 bootstrap assumptions; the default app
+still depends on unfinished QR and persistence components. Blocking decisions: OD-01 QR
+signing/issuance, OD-02 payload claims, OD-04 write ordering around unlock, OD-05 ack-only
+attendance, OD-08 replay-state storage, OD-10 Edge→Hub authentication, OD-11 persistence schema,
+OD-13 vendor turnstile API. Non-blocking: OD-03, 06, 07, 09, 12. Details:
+[decisions.md](docs/architecture/decisions.md#open-decisions).
 
 ## 22. Assignment Submission Checklist
 - [ ] Components implemented by owners; no `NotImplementedError` left in delivered paths

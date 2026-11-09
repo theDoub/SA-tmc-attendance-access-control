@@ -40,7 +40,12 @@ def create_app(coordinator: AccessCoordinator) -> FastAPI:
         except NotImplementedError as exc:
             return JSONResponse(status_code=501, content={"detail": f"Not implemented: {exc}"})
         return JSONResponse(
-            status_code=200, content={"access_attempt_id": attempt.access_attempt_id}
+            status_code=200,
+            content={
+                "access_attempt_id": attempt.access_attempt_id,
+                "status": attempt.status.value,
+                "reason_code": attempt.reason_code,
+            },
         )
 
     return app

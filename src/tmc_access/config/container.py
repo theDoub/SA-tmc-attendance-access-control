@@ -1,6 +1,7 @@
-"""Composition root: builds the object graph from settings. Business logic is not implemented."""
+"""Composition root: builds the object graph from settings."""
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from fastapi import FastAPI
 
@@ -43,9 +44,16 @@ def build_container(settings: Settings) -> Container:
     attendance_repo = SqliteAttendanceRepository()
     coordinator = AccessCoordinator(
         validator=PublicKeyQrValidator(),
-        policy_engine=AccessPolicyEvaluator(),
+        policy_engine=AccessPolicyEvaluator(
+            None,
+            fresh_for=timedelta(seconds=settings.cache_fresh_seconds),
+            max_stale_for=timedelta(seconds=settings.cache_max_stale_seconds),
+        ),
         gate=gate,
         attendance_repository=attendance_repo,
+        factory_id=settings.factory_id,
+        turnstile_timeout_ms=settings.turnstile_timeout_ms,
+        passage_window_seconds=settings.passage_window_seconds,
     )
     sync_service = SyncService(
         outbox=SqliteOutboxRepository(), client=HttpSyncClient(settings.hub_base_url)
