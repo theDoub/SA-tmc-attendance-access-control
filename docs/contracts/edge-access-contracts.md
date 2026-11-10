@@ -61,7 +61,7 @@ rule above.
 The following allocation supports the 2,000 ms kiosk response requirement under
 2-5 TPS peak bursts:
 
-    | Processing stage | Target | Hard timeout / fallback |
+| Processing stage | Target | Hard timeout / fallback |
 |---|---:|---|
 | Scan capture and envelope parsing | <= 30 ms | 100 ms; reject malformed input |
 | Cryptographic verification and anti-replay | <= 20 ms | 50 ms; deny invalid or expired input |
