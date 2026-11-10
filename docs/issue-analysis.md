@@ -45,10 +45,14 @@ Hieu/Khai/Viet cần xác nhận OD-01/02/03; Nhật xác nhận OD-08 về pers
 Kim xác nhận reject không gọi gate. Đây là nội dung phối hợp bàn giao, chưa gửi hay được nhóm chấp thuận.
 
 Profile mô phỏng: base64url(JSON).base64url(signature), Ed25519 ký ASCII của phần body;
-claims sub,jti,kid,aud (chuỗi), iat,exp (epoch UTC integer); không JWT/JWS, không hỗ trợ
+claims sub,jti,kid,aud,iss (chuỗi), iat,exp (epoch UTC integer); không JWT/JWS, không hỗ trợ
 thuật toán do token tự chọn. Thời hạn ví dụ 60 giây, không cố định production;
 clock skew bằng 0. Registry public key tiêm qua constructor; không có key thì UNKNOWN_KEY.
-Không có key loader/rotation/revocation distribution, issuer policy hay trusted clock health.
+Chưa có key loader/rotation/revocation distribution hoặc trusted clock health.
+Issuer được kiểm khớp chính xác với trusted_issuer cấu hình cục bộ, sau kiểm chữ ký
+và trước replay. Thiếu/sai kiểu iss trả MALFORMED; issuer không tin cậy trả MALFORMED
+với detail UNTRUSTED_ISSUER. Thiếu cấu hình trusted_issuer phát sinh QrError với token
+đã kiểm chữ ký đúng; không lấy issuer tin cậy từ token. Domain interface không đổi.
 Không có signer ở Edge; test tạo key tạm trong RAM, không lưu private key.
 
 Replay chỉ atomic trong một instance/process bằng lock, giữ jti đến exp. Restart hoặc
@@ -72,3 +76,11 @@ không còn file thực thi; không phải lỗi dependencies hay logic QR.
 
 Validation đầy đủ: scripts/validate.ps1 đã pass (lint, format, workflow, secret scan,
 tests: 55 passed, 6 skipped), dùng PATH của .venv/Scripts trong phiên chạy.
+
+Cập nhật issuer: bộ QR hiện có 30 test cases pass, bổ sung issuer tin cậy, thiếu/sai
+kiểu, không khớp, sửa iss nhưng giữ chữ ký cũ và cấu hình issuer không hợp lệ.
+Số liệu 18 QR tests ở trên là kết quả lịch sử trước thay đổi này.
+
+Sau cập nhật issuer, scripts/validate.ps1 đã pass lint, format, workflow, secret scan
+và toàn bộ suite: 67 passed, 6 skipped; QR: 30 passed. Sáu kịch bản access/offline
+vẫn PENDING, không tính là pass.

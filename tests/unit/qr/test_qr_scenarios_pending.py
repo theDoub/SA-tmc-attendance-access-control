@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from tmc_access.domain.errors import StorageError
+from tmc_access.domain.errors import QrError, StorageError
 from tmc_access.infrastructure.qr.public_key_validator import PublicKeyQrValidator
 from tmc_access.infrastructure.qr.replay_guard import ReplayGuardStore
 
@@ -17,10 +17,13 @@ from tmc_access.infrastructure.qr.replay_guard import ReplayGuardStore
 def profile():
     key = Ed25519PrivateKey.generate()
     guard = ReplayGuardStore()
-    validator = PublicKeyQrValidator({"test-v1": key.public_key()}, guard)
+    validator = PublicKeyQrValidator(
+        {"test-v1": key.public_key()}, guard, trusted_issuer="synthetic-hub"
+    )
 
-    def token(**changes):
+    def token(*, omit_issuer=False, **changes):
         claims = dict(
+            iss="synthetic-hub",
             sub="synthetic-user",
             jti="synthetic-id",
             kid="test-v1",
@@ -29,6 +32,8 @@ def profile():
             exp=1060,
         )
         claims.update(changes)
+        if omit_issuer:
+            del claims["iss"]
         body = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=")
         signature = base64.urlsafe_b64encode(key.sign(body)).rstrip(b"=")
         return (body + b"." + signature).decode()
@@ -103,3 +108,57 @@ def test_naive_clock(profile):
         profile[0].validate(profile[1](), "station-test", datetime(2026, 1, 1)).outcome
         == "CLOCK_UNRELIABLE"
     )
+
+
+@pytest.mark.parametrize("issuer", [None, "", 42, [], True])
+def test_invalid_issuer_claim(profile, issuer):
+    validator, token = profile
+    result = validator.validate(
+        token(iss=issuer), "station-test", datetime.fromtimestamp(1001, UTC)
+    )
+    assert result.outcome == "MALFORMED"
+    assert result.credential is None
+
+
+def test_missing_issuer_claim(profile):
+    validator, token = profile
+    result = validator.validate(
+        token(omit_issuer=True), "station-test", datetime.fromtimestamp(1001, UTC)
+    )
+    assert result.outcome == "MALFORMED"
+    assert result.credential is None
+
+
+def test_untrusted_issuer_does_not_consume_token_id(profile):
+    validator, token = profile
+    now = datetime.fromtimestamp(1001, UTC)
+    result = validator.validate(token(iss="other-hub"), "station-test", now)
+    assert result.outcome == "MALFORMED"
+    assert result.detail == "UNTRUSTED_ISSUER"
+    assert result.credential is None
+    assert validator.validate(token(), "station-test", now).outcome == "VALID"
+
+
+def test_missing_trusted_issuer_configuration(profile):
+    configured, token = profile
+    validator = PublicKeyQrValidator(configured._keys, ReplayGuardStore())
+    with pytest.raises(QrError, match="Trusted issuer"):
+        validator.validate(token(), "station-test", datetime.fromtimestamp(1001, UTC))
+
+
+def test_tampered_issuer_invalidates_signature(profile):
+    validator, token = profile
+    body, signature = token().split(".")
+    claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    claims["iss"] = "other-hub"
+    tampered_body = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+    now = datetime.fromtimestamp(1001, UTC)
+    result = validator.validate(tampered_body + "." + signature, "station-test", now)
+    assert result.outcome == "INVALID_SIGNATURE"
+    assert validator.validate(token(), "station-test", now).outcome == "VALID"
+
+
+@pytest.mark.parametrize("issuer", ["", "   ", 42])
+def test_invalid_trusted_issuer_configuration(issuer):
+    with pytest.raises(ValueError, match="trusted_issuer"):
+        PublicKeyQrValidator(trusted_issuer=issuer)

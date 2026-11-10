@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from tmc_access.domain.errors import QrError
 from tmc_access.domain.interfaces.qr import ReplayGuard
 from tmc_access.domain.models.qr import (
     QrValidationOutcome as Outcome,
@@ -21,7 +22,18 @@ from tmc_access.domain.models.qr import (
 class PublicKeyQrValidator:
     """Requires explicit public keys and replay port; unconfigured instances deny."""
 
-    def __init__(self, public_keys=None, replay_guard: ReplayGuard | None = None):
+    def __init__(
+        self,
+        public_keys=None,
+        replay_guard: ReplayGuard | None = None,
+        *,
+        trusted_issuer: str | None = None,
+    ):
+        if trusted_issuer is not None and (
+            not isinstance(trusted_issuer, str) or not trusted_issuer.strip()
+        ):
+            raise ValueError("trusted_issuer must be a non-blank string")
+        self._trusted_issuer = trusted_issuer
         self._keys = dict(public_keys or {})
         self._replay = replay_guard
 
@@ -52,7 +64,7 @@ class PublicKeyQrValidator:
             claims = json.loads(decode(body), object_pairs_hook=unique)
             if not isinstance(claims, dict):
                 return reject(Outcome.MALFORMED)
-            for name in ("sub", "jti", "kid", "aud"):
+            for name in ("sub", "jti", "kid", "aud", "iss"):
                 if not isinstance(claims.get(name), str) or not claims[name]:
                     return reject(Outcome.MALFORMED)
             for name in ("iat", "exp"):
@@ -67,13 +79,15 @@ class PublicKeyQrValidator:
         if key is None:
             return reject(Outcome.UNKNOWN_KEY)
         if not isinstance(key, Ed25519PublicKey):
-            from tmc_access.domain.errors import QrError
-
             raise QrError("Invalid verification key configuration")
         try:
             key.verify(sig, body.encode("ascii"))
         except InvalidSignature:
             return reject(Outcome.INVALID_SIGNATURE)
+        if self._trusted_issuer is None:
+            raise QrError("Trusted issuer must be configured")
+        if claims["iss"] != self._trusted_issuer:
+            return QrValidationResult(Outcome.MALFORMED, detail="UNTRUSTED_ISSUER")
         if expires <= issued:
             return reject(Outcome.MALFORMED)
         if now >= expires:
