@@ -39,6 +39,12 @@ class AccessDecision:
             raise ValueError("DENY decision requires a reason")
         if self.kind is AccessDecisionKind.ALLOW and self.reason is not None:
             raise ValueError("ALLOW decision must not carry a deny reason")
+        if self.kind is AccessDecisionKind.ALLOW and not self.policy_version:
+            raise ValueError("ALLOW decision requires a policy version")
+        if self.policy_version == "":
+            raise ValueError("policy version must not be empty")
+        if self.stale_cache_used and self.policy_version is None:
+            raise ValueError("stale-cache decision requires a policy version")
 
 
 class AttemptStatus(StrEnum):
@@ -50,6 +56,7 @@ class AttemptStatus(StrEnum):
     UNLOCK_ACKNOWLEDGED = "UNLOCK_ACKNOWLEDGED"
     UNLOCK_REJECTED = "UNLOCK_REJECTED"
     UNLOCK_TIMEOUT = "UNLOCK_TIMEOUT"
+    UNLOCK_UNAVAILABLE = "UNLOCK_UNAVAILABLE"
     PASSAGE_CONFIRMED = "PASSAGE_CONFIRMED"
     PASSAGE_UNRESOLVED = "PASSAGE_UNRESOLVED"
 
@@ -84,3 +91,5 @@ class AccessAttempt:
     status: AttemptStatus = AttemptStatus.RECEIVED
     subject_id: str | None = None
     reason_code: str | None = None
+    policy_version: str | None = None
+    stale_cache_used: bool = False

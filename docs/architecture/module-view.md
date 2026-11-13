@@ -43,5 +43,8 @@ These rules realize A1's closed-layer decisions (Table 13) for the Edge module.
 ## Relationship to Edge Gate Access Processing
 Every package above belongs to this module. Hub modules are not represented.
 
+Kim's class design, decision flow and SOLID mapping are documented in
+[edge-access-core-design.md](edge-access-core-design.md).
+
 ## Open decisions
 OD-04 (write ordering inside `AccessCoordinator`), OD-11 (persistence schema). See [decisions.md](decisions.md#open-decisions).

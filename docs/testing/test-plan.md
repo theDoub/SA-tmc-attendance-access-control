@@ -12,6 +12,8 @@ Skipped tests are **PENDING functionality**, not passes. `pytest -ra` prints eac
 | SQLite | `tests/unit/test_sqlite_wal.py` | WAL on a **file-backed** DB; in-memory rejected |
 | API | `tests/unit/test_api_smoke.py` | `/health` 200; `/scan` 501; payload not echoed/repr'd |
 | Models | `tests/unit/test_models.py` | Lifecycle types stay distinct; result invariants |
+| Access policy | `tests/unit/access/test_policy_evaluator.py` | Fresh/stale/missing policy, grants and inactive subjects |
+| Access flow | `tests/unit/access/test_access_scenarios.py` | Denials, write-before-unlock, gate/passage outcomes and attendance creation |
 
 ## Pending scenarios (not implemented)
 
@@ -22,8 +24,6 @@ Skipped tests are **PENDING functionality**, not passes. `pytest -ra` prints eac
 | 3 | Expired QR | `tests/unit/qr/` | Hieu | OD-02 |
 | 4 | Replay attack | `tests/unit/qr/` | Hieu | OD-08 |
 | – | Malformed QR (extra) | `tests/unit/qr/` | Hieu | OD-02 |
-| 5 | Access denied | `tests/unit/access/` | Kim | none |
-| 6 | Gate command failure | `tests/unit/access/` | Kim (uses Nhật's mock) | OD-04, OD-05 |
 | 7 | Network disconnection | `tests/integration/` | Nhật | OD-11 |
 | 8 | Local event persistence | `tests/integration/` | Nhật | OD-04, OD-11 |
 | 9 | Reconnection and synchronization | `tests/integration/` | Nhật | OD-10, OD-11 |

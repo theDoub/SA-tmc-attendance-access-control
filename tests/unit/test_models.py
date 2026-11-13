@@ -49,4 +49,10 @@ def test_deny_requires_reason_and_allow_forbids_it() -> None:
     with pytest.raises(ValueError):
         AccessDecision(AccessDecisionKind.DENY)
     with pytest.raises(ValueError):
-        AccessDecision(AccessDecisionKind.ALLOW, reason=DenyReason.POLICY_STALE)
+        AccessDecision(
+            AccessDecisionKind.ALLOW,
+            reason=DenyReason.POLICY_STALE,
+            policy_version="policy-v1",
+        )
+    with pytest.raises(ValueError):
+        AccessDecision(AccessDecisionKind.ALLOW)

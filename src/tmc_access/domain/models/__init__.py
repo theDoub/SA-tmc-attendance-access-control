@@ -18,6 +18,7 @@ from tmc_access.domain.models.attendance import (
     TimeQuality,
 )
 from tmc_access.domain.models.gate import GateAck, GateCommandResult, PassageStatus
+from tmc_access.domain.models.policy import AccessGrant, PolicySnapshot, SubjectPolicy
 from tmc_access.domain.models.qr import (
     QrValidationOutcome,
     QrValidationResult,
@@ -29,6 +30,7 @@ __all__ = [
     "AccessAttempt",
     "AccessDecision",
     "AccessDecisionKind",
+    "AccessGrant",
     "AttemptStatus",
     "AttendanceRecord",
     "ConfirmationEvidence",
@@ -37,12 +39,14 @@ __all__ = [
     "GateAck",
     "GateCommandResult",
     "PassageStatus",
+    "PolicySnapshot",
     "QrValidationOutcome",
     "QrValidationResult",
     "RejectedEvent",
     "ScanInput",
     "SyncResult",
     "SyncStatus",
+    "SubjectPolicy",
     "TimeQuality",
     "VerifiedCredential",
 ]
