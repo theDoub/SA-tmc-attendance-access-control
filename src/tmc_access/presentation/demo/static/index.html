@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TMC Factory Gate Control Center</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand-badge">TMC</div>
+      <div>
+        <h1>TMC Factory Gate Control Center</h1>
+        <p class="subtitle">Edge Gate Access Processing Prototype &mdash; Local SQLite WAL + Simulated Hub</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="hub-status-pill" class="pill pill-online">Hub: ONLINE</span>
+      <button id="btn-demo-mode" class="btn btn-secondary" type="button">Presentation Mode</button>
+      <button id="btn-refresh" class="btn btn-secondary" type="button">Refresh DB</button>
+      <button id="btn-reset" class="btn btn-danger-outline" type="button">Reset Demo</button>
+    </div>
+  </header>
+
+  <main class="dashboard">
+    <!-- Left Column: Gate + Credentials + Sync -->
+    <section class="col-controls">
+      <!-- A. Factory Gate Simulation -->
+      <article class="card" id="panel-gate">
+        <div class="card-header">
+          <h2>A. Factory Gate Simulation</h2>
+          <span id="gate-status-badge" class="pill pill-neutral">LOCKED</span>
+        </div>
+        <div class="form-grid">
+          <label>
+            Factory
+            <select id="select-factory"></select>
+          </label>
+          <label>
+            Station ID
+            <input id="input-station" type="text" readonly />
+          </label>
+          <label>
+            Gate ID
+            <select id="select-gate"></select>
+          </label>
+          <label>
+            Direction
+            <select id="select-direction">
+              <option value="ENTRY">ENTRY</option>
+              <option value="EXIT">EXIT</option>
+            </select>
+          </label>
+          <label class="span-2">
+            Turnstile Mock Scenario (<code>MockTurnstileAdapter</code>)
+            <select id="select-gate-scenario">
+              <option value="acked_with_passage">acked_with_passage (ACK + Passage Confirmed)</option>
+              <option value="acked_no_passage">acked_no_passage (ACK, Passage Not Confirmed)</option>
+              <option value="acked_passage_unavailable">acked_passage_unavailable (ACK, Sensor Unavailable)</option>
+              <option value="rejected">rejected (Gate Rejected)</option>
+              <option value="timeout">timeout (Gate Timeout)</option>
+              <option value="unavailable">unavailable (Controller Unavailable)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="gate-visual-box">
+          <svg id="turnstile-svg" viewBox="0 0 360 110" aria-label="Turnstile Gate Visual">
+            <rect x="10" y="18" width="68" height="74" rx="6" class="gate-pillar" />
+            <text x="44" y="59" text-anchor="middle" class="gate-pillar-label">READER</text>
+            <rect x="282" y="18" width="68" height="74" rx="6" class="gate-pillar" />
+            <text x="316" y="59" text-anchor="middle" class="gate-pillar-label">SENSOR</text>
+            <line x1="78" y1="55" x2="282" y2="55" class="gate-lane-floor" />
+            <g id="gate-arm-group" class="gate-arm-locked">
+              <rect x="84" y="49" width="192" height="12" rx="6" class="gate-arm" />
+            </g>
+            <circle cx="180" cy="24" r="9" id="gate-led" class="led-neutral" />
+            <text x="180" y="98" text-anchor="middle" id="gate-svg-caption" class="gate-caption">LOCKED &mdash; Awaiting Scan</text>
+          </svg>
+        </div>
+        <div id="last-outcome-banner" class="outcome-banner outcome-neutral">
+          Ready. Issue a credential and scan at the gate.
+        </div>
+      </article>
+
+      <!-- B. Employee and QR Credential Panel -->
+      <article class="card" id="panel-qr">
+        <div class="card-header">
+          <h2>B. Demo Credential Issuer &mdash; Simulated Central Hub</h2>
+          <span class="tag tag-sim">Ed25519 2-Part Prototype</span>
+        </div>
+        <p class="hint">
+          Demo-only local Ed25519 issuer (outside Edge runtime). Edge verifies via <code>PublicKeyQrValidator</code> + <code>ReplayGuardStore</code>.
+        </p>
+        <div class="form-grid">
+          <label class="span-2">
+            Synthetic Employee Profile
+            <select id="select-employee"></select>
+          </label>
+        </div>
+        <div id="employee-policy-note" class="policy-note"></div>
+
+        <div class="btn-row">
+          <button id="btn-gen-qr" class="btn btn-secondary" type="button">Generate Signed QR</button>
+          <button id="btn-scan-qr" class="btn btn-primary" type="button">Scan QR</button>
+          <button id="btn-replay-qr" class="btn btn-warning" type="button">Replay Same QR</button>
+          <button id="btn-new-qr" class="btn btn-secondary" type="button">Generate New QR</button>
+          <button id="btn-malformed-qr" class="btn btn-secondary" type="button">Submit Malformed QR</button>
+        </div>
+
+        <div class="qr-preview-grid">
+          <div class="qr-box" id="qr-visual-container" title="Presentation QR Matrix"></div>
+          <div class="qr-meta">
+            <div class="kv"><span>Token format:</span> <code>base64url(JSON).base64url(sig)</code></div>
+            <div class="kv"><span>Active token:</span> <code id="qr-token-preview">None issued yet</code></div>
+            <pre id="qr-claims-preview" class="claims-box">{}</pre>
+          </div>
+        </div>
+      </article>
+
+      <!-- C. Connectivity and Synchronization Panel -->
+      <article class="card" id="panel-sync">
+        <div class="card-header">
+          <h2>C. Connectivity &amp; Synchronization</h2>
+          <span id="sync-worker-badge" class="pill pill-neutral">Worker Idle</span>
+        </div>
+        <div class="sync-controls">
+          <button id="btn-toggle-hub" class="btn btn-secondary" type="button">Switch Hub OFFLINE</button>
+          <label class="checkbox-inline">
+            <input id="chk-lose-ack" type="checkbox" />
+            Simulate Lost ACK (next push)
+          </label>
+          <button id="btn-sync-now" class="btn btn-primary" type="button">Sync Pending Events</button>
+          <button id="btn-retry-now" class="btn btn-secondary" type="button">Simulate Retry</button>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi"><span class="kpi-label">PENDING</span><strong id="kpi-pending">0</strong></div>
+          <div class="kpi"><span class="kpi-label">SYNCED</span><strong id="kpi-synced">0</strong></div>
+          <div class="kpi"><span class="kpi-label">REJECTED</span><strong id="kpi-rejected">0</strong></div>
+          <div class="kpi"><span class="kpi-label">CONFLICT</span><strong id="kpi-conflict">0</strong></div>
+          <div class="kpi"><span class="kpi-label">Hub Events</span><strong id="kpi-hub">0</strong></div>
+          <div class="kpi"><span class="kpi-label">Failures</span><strong id="kpi-failures">0</strong></div>
+        </div>
+        <div id="sync-status-msg" class="sync-msg">Idle</div>
+      </article>
+    </section>
+
+    <!-- Right Column: Live Event Timeline + SQLite DB Viewer -->
+    <section class="col-observability">
+      <!-- E. Live Event Timeline -->
+      <article class="card" id="panel-timeline">
+        <div class="card-header">
+          <h2>D. Live Event Timeline (Per Scan)</h2>
+          <span class="tag tag-impl">Confirmed Backend States Only</span>
+        </div>
+        <ol id="timeline-list" class="timeline-list">
+          <li class="tl-item tl-skipped"><span class="tl-dot"></span><div><strong>No scan executed yet</strong><p>Click "Generate Signed QR" then "Scan QR" to observe all 9 stages.</p></div></li>
+        </ol>
+      </article>
+
+      <!-- D. Attendance and Local Database Viewer -->
+      <article class="card" id="panel-db">
+        <div class="card-header">
+          <h2>E. Local SQLite WAL Database Viewer (<code>data/demo/</code>)</h2>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="attempts" type="button">Access Attempts (<span id="cnt-attempts">0</span>)</button>
+            <button class="tab-btn" data-tab="attendance" type="button">Attendance Records (<span id="cnt-attendance">0</span>)</button>
+            <button class="tab-btn" data-tab="outbox" type="button">Outbox Events (<span id="cnt-outbox">0</span>)</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="db-table">
+            <thead id="db-thead"></thead>
+            <tbody id="db-tbody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

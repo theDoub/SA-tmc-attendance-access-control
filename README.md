@@ -1,10 +1,14 @@
 # TMC QR-based Attendance and Access Control: Edge Gate Access Processing
 
-> **Status: Edge access core implemented; other components remain scaffolded.** Contracts,
-> structure, tooling, access policy evaluation, access-flow orchestration, a deterministic mock
-> turnstile and unit tests exist. QR verification, SQLite repositories, outbox and synchronization
-> are not implemented yet. Their unfinished paths raise `NotImplementedError`; pending scenarios
-> are skipped and are not passes.
+> **Status: Integrated A2 Edge prototype.** Core Edge flows (`PublicKeyQrValidator`,
+> `ReplayGuardStore`, `AccessPolicyEvaluator`, `AccessCoordinator`, `MockTurnstileAdapter`,
+> `SqliteAttendanceRepository`, `SqliteOutboxRepository`, `SyncService`, `SyncRetryWorker`,
+> and `SimulatedSyncClient`/`SimulatedHubReceiver`) are implemented and tested. Production
+> vendor turnstile (`OD-13`), production Hub ingestion (`OD-10`), and policy/key distribution
+> (`OD-09`) remain external/open.
+>
+> **Interactive Web Demo:** See [docs/demo-web-guide.md](docs/demo-web-guide.md) to launch
+> the **TMC Factory Gate Control Center** locally.
 
 ## 1. Project Title
 TMC QR-based Attendance and Access Control System: Assignment 2 (Edge Gate Access Processing module).
