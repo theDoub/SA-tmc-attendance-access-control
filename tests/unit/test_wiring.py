@@ -1,10 +1,13 @@
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
 
-from tmc_access.config.container import build_container
+from tmc_access.config.container import build_container, build_gate
 from tmc_access.config.settings import Settings
 from tmc_access.domain.models import Direction, ScanInput
+from tmc_access.infrastructure.turnstile.mock_turnstile import SCENARIO_NAMES, MockScenario
 
 
 @pytest.mark.unit
@@ -12,16 +15,18 @@ def test_container_wires_coordinator_and_sync(settings) -> None:
     container = build_container(settings)
     assert container.coordinator is not None
     assert container.sync_service is not None
+    assert settings.sqlite_path.is_file()
+    with closing(sqlite3.connect(settings.sqlite_path)) as conn:
+        assert conn.execute("SELECT count(*) FROM access_attempts").fetchone()[0] == 0
 
 
 @pytest.mark.unit
-def test_unimplemented_flows_raise_not_implemented(settings) -> None:
+def test_coordinator_handles_scan_and_empty_outbox_has_nothing_to_sync(settings) -> None:
     container = build_container(settings)
     scan = ScanInput("r1", "s1", "g1", Direction.ENTRY, datetime.now(UTC), "synthetic-payload")
-    with pytest.raises(NotImplementedError):
-        container.coordinator.handle_scan(scan)
-    with pytest.raises(NotImplementedError):
-        container.sync_service.sync_once()
+    attempt = container.coordinator.handle_scan(scan)
+    assert attempt.status.value == "DENIED"
+    container.sync_service.sync_once()  # Empty batch must not contact even a stub client.
 
 
 @pytest.mark.unit
@@ -36,6 +41,19 @@ def test_mock_mode_requires_explicit_scenario(tmp_path) -> None:
     )
     with pytest.raises(ValueError, match="MOCK_SCENARIO"):
         build_container(bad)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", SCENARIO_NAMES)
+def test_mock_scenario_is_wired_from_settings(settings, name: str) -> None:
+    configured = settings.model_copy(
+        update={"turnstile_mode": "mock", "turnstile_mock_scenario": name}
+    )
+    gate = build_gate(configured)
+    expected = MockScenario.by_name(name)
+    result = gate.unlock("synthetic-command", "synthetic-gate", Direction.ENTRY, 800)
+    assert result.ack is expected.ack
+    assert gate.query_passage(result.command_id, 15) is expected.passage
 
 
 @pytest.mark.unit

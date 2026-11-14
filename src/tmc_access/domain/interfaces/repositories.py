@@ -38,6 +38,10 @@ class AttendanceRepository(Protocol):
         """
         ...
 
+    def next_sequence(self) -> int:
+        """Allocate the next monotonically increasing source sequence number."""
+        ...
+
 
 class OutboxRepository(Protocol):
     def get_pending(self, batch_size: int) -> list[AttendanceRecord]:

@@ -9,6 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from tmc_access.domain.models.access import Direction
+from tmc_access.domain.models.gate import GateAck
 from tmc_access.domain.models.sync import SyncStatus
 
 
@@ -36,5 +37,16 @@ class AttendanceRecord:
     direction: Direction
     event_time: datetime
     confirmation_evidence: ConfirmationEvidence
+    source_sequence: int
+    policy_version: str
+    controller_ack: GateAck
     time_quality: TimeQuality = TimeQuality.RELIABLE
     sync_status: SyncStatus = SyncStatus.PENDING
+
+    def __post_init__(self) -> None:
+        if not self.policy_version:
+            raise ValueError("attendance record requires a policy version")
+        if self.event_time.tzinfo is None:
+            raise ValueError("attendance event time must be timezone-aware")
+        if type(self.source_sequence) is not int or self.source_sequence <= 0:
+            raise ValueError("attendance record requires a positive integer source_sequence")

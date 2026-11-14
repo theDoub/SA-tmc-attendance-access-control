@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     sqlite_path: Path = Path("data/edge.db")
     hub_base_url: str = "https://hub.example.invalid"
+    sync_mode: Literal["http", "simulation"] = "http"
+    sync_simulation_db_path: Path | None = None
 
     # QR verification (public keys only). Clock skew has no A1 value: unset (OD-02/OD-08).
     qr_public_key_dir: Path = Path("keys/public")
