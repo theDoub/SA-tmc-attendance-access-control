@@ -192,6 +192,9 @@ implementations and integration tests replace them.
   nodes and networks.
 - The **Contracts** document defines the data, error, atomicity, and
   idempotency rules at the ports listed above.
+- **Access Core Design ([`edge-access-core-design.md`](edge-access-core-design.md))**:
+  documents Kim's class design, decision flow, and SOLID mapping for
+  `AccessCoordinator` and `AccessPolicyEvaluator`.
 
 ## 8. Open decisions and implementation status
 
