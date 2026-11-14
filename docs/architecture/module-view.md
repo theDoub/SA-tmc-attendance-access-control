@@ -9,7 +9,7 @@
 | Course | Software Architecture (CO3017), HCMUT |
 | Baseline | Assignment 1 (`Assignment1_Group6.pdf`), ADR-001..004 |
 | Related contracts | [`docs/contracts/edge-access-contracts.md`](../contracts/edge-access-contracts.md) |
-| Status | Integrated A2 prototype; core Edge use cases and SQLite/Outbox persistence implemented; vendor hardware and Hub ingestion remain simulated/stubbed |
+| Status | Architecture scaffold; several adapters and use cases remain unimplemented |
 
 ## 1. Purpose and scope
 
@@ -43,17 +43,13 @@ with inward layered dependencies**:
 
 ```mermaid
 flowchart LR
-    classDef core fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
-    classDef outer fill:#f8fafc,stroke:#475569,stroke-width:1.4px,color:#111827
-    classDef root fill:#edf7ed,stroke:#2e6f40,stroke-width:1.4px,color:#111827
-
-    C["config<br/>settings / container"]:::root --> P["presentation.api<br/>FastAPI /health, /scan"]:::outer
-    C --> A["application<br/>AccessCoordinator / SyncService"]:::outer
-    C --> I["infrastructure<br/>QR / turnstile / SQLite / sync"]:::outer
-    C --> D["domain<br/>models / interfaces / policies / errors"]:::core
-    P --> A
+    P["presentation.api<br/>FastAPI / scan boundary"] --> A["application<br/>AccessCoordinator / SyncService"]
+    I["infrastructure<br/>QR / turnstile / persistence / sync"] --> D["domain<br/>models / interfaces / policies / errors"]
     A --> D
-    I --> D
+    C["config<br/>settings / composition root"] --> P
+    C --> A
+    C --> I
+    C --> D
 ```
 
 ### Diagram Legend
@@ -80,11 +76,11 @@ mobile application modules are not included in this repository.
 | `domain/policies`                | Pure local access-policy rules through `AccessPolicyEvaluator`                                                                                                                | `domain.models`                                                           | Access Control                        | Kim              |
 | `domain/errors.py`               | Structured domain/infrastructure error categories such as QR, policy, gate, storage, and sync errors                                                                          | Standard library                                                          | Failure taxonomy                      | Shared           |
 | `application/access`             | `AccessCoordinator`: scan -> QR result -> policy decision -> attempt persistence -> gate -> passage -> attendance/outbox flow                                                 | Domain ports and models only                                              | Access Control / Attendance Recorder  | Kim              |
-| `application/synchronization`    | `SyncService` and `SyncRetryWorker`: obtain pending outbox records, push batches with configured backoff, and apply Hub acknowledgements                                   | `OutboxRepository`, `SyncClient`                                          | Background Sync Worker                | Nhat             |
-| `infrastructure/qr`              | `PublicKeyQrValidator` and `ReplayGuardStore`; public-key verification (Ed25519 two-part prototype) and in-memory replay state                                                | Domain models/interfaces; `cryptography` and threading `Lock`             | QR Validation                         | Hieu             |
-| `infrastructure/turnstile`       | `MockTurnstileAdapter` (implemented) and `VendorTurnstileAdapter` (stub) implement gate behavior                                                                              | `GateAdapter`, domain gate models                                         | Gate Control Adapter                  | Nhat             |
-| `infrastructure/persistence`     | SQLite WAL connection and `SqliteAttendanceRepository` / `SqliteOutboxRepository`                                                                                             | Domain repository ports/models; `sqlite3`                                 | Local Store and Transactional Outbox  | Nhat             |
-| `infrastructure/synchronization` | `SimulatedSyncClient`, `SimulatedHubReceiver`, `HttpSyncClient` (stub), and `BackoffConfig` for Hub transport and operational retry configuration                           | `SyncClient`, domain models, HTTP/configuration libraries                 | Sync Worker / Ingestion Client        | Nhat             |
+| `application/synchronization`    | `SyncService`: obtain pending outbox records, push a batch, and apply Hub acknowledgements                                                                                    | `OutboxRepository`, `SyncClient`                                          | Background Sync Worker                | Nhat             |
+| `infrastructure/qr`              | `PublicKeyQrValidator` and `ReplayGuardStore`; public-key verification and replay state                                                                                       | Domain models/interfaces; cryptography and local storage when implemented | QR Validation                         | Hieu             |
+| `infrastructure/turnstile`       | `MockTurnstileAdapter` and `VendorTurnstileAdapter` implement gate behavior                                                                                                   | `GateAdapter`, domain gate models                                         | Gate Control Adapter                  | Nhat             |
+| `infrastructure/persistence`     | SQLite connection and `SqliteAttendanceRepository` / `SqliteOutboxRepository`                                                                                                 | Domain repository ports/models; `sqlite3`                                 | Local Store and Transactional Outbox  | Nhat             |
+| `infrastructure/synchronization` | `HttpSyncClient` and `BackoffConfig` for Hub transport and operational retry configuration                                                                                    | `SyncClient`, domain models, HTTP/configuration libraries                 | Sync Worker / Ingestion Client        | Nhat             |
 | `presentation/api`               | FastAPI health endpoint and scan simulation boundary; maps an HTTP request to `ScanInput`                                                                                     | `AccessCoordinator`, domain models, FastAPI/Pydantic                      | QR Scanner Adapter (simulation)       | Kim              |
 | `config`                         | `Settings`, `Container`, `build_gate`, and `build_container`; wires concrete adapters                                                                                         | All outer-layer packages and settings                                     | Shared services / composition root    | Khai / Viet      |
 
@@ -98,13 +94,13 @@ stable across component ownership boundaries.
 
 | Port in `domain/interfaces/` | Contract | Concrete realization | Status and notes |
 |---|---|---|---|
-| `QrValidator` | `validate(raw_payload, station_id, now) -> QrValidationResult`; verifies format, signature, claims, expiry, key status, and replay outcome | `infrastructure.qr.PublicKeyQrValidator` | Implemented A2 prototype: verifies 2-part Ed25519 token (`base64url(JSON).base64url(sig)`), required claims (`sub`, `jti`, `kid`, `aud`, `iss`, `iat`, `exp`), 0 s clock skew |
-| `ReplayGuard` | `check_and_record(token_id, expires_at, now) -> bool`; atomically accepts first use and rejects replay | `infrastructure.qr.ReplayGuardStore` | Implemented in-memory thread-safe store (`Lock`); persistence across restarts/multi-scanner behavior remains OD-08 |
-| `AccessPolicyEngine` | `evaluate(credential, gate_id, direction, now) -> AccessDecision`; returns ALLOW or normal DENY | `domain.policies.AccessPolicyEvaluator` | Implemented offline rules (`fresh_for=300s`, `max_stale_for=7200s`) via `PolicySnapshotProvider` |
-| `GateAdapter` | `unlock(command_id, gate_id, direction, timeout_ms) -> GateCommandResult` and `query_passage(command_id, window_seconds) -> PassageStatus` | `MockTurnstileAdapter`; `VendorTurnstileAdapter` | `MockTurnstileAdapter` implemented for deterministic outcomes; `VendorTurnstileAdapter` remains stubbed (OD-13) |
-| `AttendanceRepository` | `save_attempt`, `update_attempt`, atomic `save_record_with_outbox`, and `next_sequence` | `SqliteAttendanceRepository` | Implemented with SQLite WAL (`synchronous=FULL`, `foreign_keys=ON`); `next_sequence()` is monotonic per kiosk DB (OD-11 production scope open) |
-| `OutboxRepository` | `get_pending`, `mark_synchronized`, `mark_rejected`, and `mark_conflict` | `SqliteOutboxRepository` | Implemented against `outbox_events` (`PENDING`, `SYNCED`, `REJECTED`, `CONFLICT`) |
-| `SyncClient` | `push_events(batch) -> SyncResult`; at-least-once delivery with accepted, rejected, and conflict outcomes | `SimulatedSyncClient`; `HttpSyncClient` | `SimulatedSyncClient` (+ `SimulatedHubReceiver`) implemented for simulation/tests; `HttpSyncClient` remains stubbed (OD-10) |
+| `QrValidator` | `validate(raw_payload, station_id, now) -> QrValidationResult`; verifies format, signature, claims, expiry, key status, and replay outcome | `infrastructure.qr.PublicKeyQrValidator` | Class exists; behavior is not implemented |
+| `ReplayGuard` | `check_and_record(token_id, expires_at, now) -> bool`; atomically accepts first use and rejects replay | `infrastructure.qr.ReplayGuardStore` | Class exists; storage/restart strategy is OD-08 and behavior is not implemented |
+| `AccessPolicyEngine` | `evaluate(credential, gate_id, direction, now) -> AccessDecision`; returns ALLOW or normal DENY | `domain.policies.AccessPolicyEvaluator` | Class exists; policy behavior is not implemented |
+| `GateAdapter` | `unlock(command_id, gate_id, direction, timeout_ms) -> GateCommandResult` and `query_passage(command_id, window_seconds) -> PassageStatus` | `MockTurnstileAdapter`; `VendorTurnstileAdapter` | Mock covers deterministic outcomes; vendor protocol is OD-13 |
+| `AttendanceRepository` | `save_attempt`, `update_attempt`, and atomic `save_record_with_outbox` | `SqliteAttendanceRepository` | Class exists; repository operations are not implemented; schema is OD-11 |
+| `OutboxRepository` | `get_pending`, `mark_synchronized`, `mark_rejected`, and `mark_conflict` | `SqliteOutboxRepository` | Class exists; operations are not implemented |
+| `SyncClient` | `push_events(batch) -> SyncResult`; at-least-once delivery with accepted, rejected, and conflict outcomes | `HttpSyncClient` | Class exists; Hub endpoint and transport authentication are OD-10 |
 
 Ports use domain types deliberately. For example, `GateAck.ACKNOWLEDGED` is
 only an unlock acknowledgement and never a passage result; `AttendanceRecord`
@@ -196,9 +192,6 @@ implementations and integration tests replace them.
   nodes and networks.
 - The **Contracts** document defines the data, error, atomicity, and
   idempotency rules at the ports listed above.
-- **Access Core Design ([`edge-access-core-design.md`](edge-access-core-design.md))**:
-  documents Kim's class design, decision flow, and SOLID mapping for
-  `AccessCoordinator` and `AccessPolicyEvaluator`.
 
 ## 8. Open decisions and implementation status
 
@@ -214,10 +207,7 @@ resolve those questions:
 - OD-11: persistence schema and sequence-number details.
 - OD-13: vendor turnstile API.
 
-The current repository implements and tests the core Edge A2 prototype
-(`PublicKeyQrValidator`, `ReplayGuardStore`, `AccessPolicyEvaluator`,
-`AccessCoordinator`, `SqliteAttendanceRepository`, `SqliteOutboxRepository`,
-`SyncService`, `SyncRetryWorker`, `MockTurnstileAdapter`, and
-`SimulatedSyncClient`) under AST-enforced layer boundaries. External/production
-adapters (`VendorTurnstileAdapter`, `HttpSyncClient`) and open architectural
-decisions (OD-01..OD-13) remain pending team confirmation.
+The current repository is therefore a structurally enforced scaffold: ports,
+models, wiring, architecture tests, settings, and the deterministic mock exist;
+the coordinator, QR validator, policy evaluator, SQLite repositories, sync
+service/client, and vendor adapter still require implementation.

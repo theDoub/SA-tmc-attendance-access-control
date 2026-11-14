@@ -10,7 +10,7 @@
 | Baseline | Assignment 1 §4.1 and Figure 5; ADR-001..004 |
 | Related views | [`module-view.md`](module-view.md), [`component-connector-view.md`](component-connector-view.md) |
 | Related contracts | [`../contracts/edge-access-contracts.md`](../contracts/edge-access-contracts.md) |
-| Status | A2 prototype runtime allocation; core Edge runtime and SQLite WAL persistence are implemented, while vendor hardware, Hub, and backup automation remain simulated or external |
+| Status | Target allocation; kiosk packaging and backup automation are not implemented in the scaffold |
 
 ## 1. Purpose and deployment boundary
 
@@ -38,46 +38,38 @@ provisioned by this repository.
 
 ```mermaid
 flowchart TB
-    classDef impl fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
-    classDef ext fill:#f3f4f6,stroke:#6b7280,stroke-width:1.2px,stroke-dasharray:4 2,color:#1f2937
-    classDef zone fill:#ffffff,stroke:#94a3b8,stroke-width:1.2px,color:#111827
-
-    subgraph User["User Device Zone (External / Out of M2 Scope)"]
-        Phone["Employee Smartphone<br/>(Dynamic signed QR)"]:::ext
-        Browser["Supervisor / HR Browser"]:::ext
+    subgraph User["User Device Zone (external)"]
+        Phone[Employee smartphone<br/>dynamic signed QR]
+        Browser[Supervisor / HR browser]
     end
 
-    subgraph Factory["Factory Gate Station Zone (M2 Target)"]
-        subgraph Lane["One Gate Lane"]
-            Scanner["QR Scanner<br/>(USB / Serial / LAN)"]:::ext
+    subgraph Factory["Factory Gate Station Zone (M2 allocation target)"]
+        subgraph Lane["One gate lane"]
+            Scanner[QR scanner]
             subgraph Kiosk["Kiosk Computer"]
-                Runtime["tmc_access Runtime<br/>(POSIX/Linux or Windows IoT, Python 3.12)"]:::impl
-                DB[("data/edge.db<br/>(SQLite WAL)")]:::impl
-                Keys["keys/public/<br/>(Public verification keys)"]:::impl
-                Runtime --> DB
-                Runtime --> Keys
+                OS["POSIX/Linux or Windows IoT<br/>Python 3.12 + .venv"]
+                DB[(data/edge.db<br/>SQLite WAL)]
+                Keys[keys/public<br/>public verification keys]
             end
-            Turnstile["Turnstile Controller"]:::ext
+            Turnstile[Turnstile controller]
         end
-        NTP["Trusted Factory NTP<br/>(External LAN time source)"]:::ext
-        Backup["Factory LAN Backup Storage<br/>(Planned, not implemented)"]:::ext
+        NTP[Trusted factory time service]
+        Backup[Factory LAN backup storage]
     end
 
-    subgraph Central["Central Server Zone (External / Out of M2 Scope)"]
-        Hub["Central Management Hub<br/>(Modular monolith)"]:::ext
-        HubDB[("Central Database")]:::ext
+    subgraph Central["Central Server Zone (out of M2 scope)"]
+        Hub[Central Management Hub<br/>modular monolith]
+        HubDB[(Central database)]
         Hub --> HubDB
     end
 
-    Phone -.->|Optical presentation| Scanner
-    Scanner -->|Local ingress| Runtime
-    Runtime <-->|"Unlock / passage<br/>(Mock / OD-13)"| Turnstile
-    NTP -.->|"Clock sync (NTP UDP 123)"| Runtime
-    Runtime -.->|"Snapshot / backup (planned)"| Backup
-    Runtime -.->|"Async HTTPS batch (OD-10)"| Hub
-    Browser -.->|HTTPS| Hub
-
-    class User,Factory,Lane,Kiosk,Central zone
+    Phone -. optical presentation .-> Scanner
+    Scanner -->|local ingress| OS
+    OS <-->|unlock / passage| Turnstile
+    OS -. NTP .-> NTP
+    OS -. snapshot / backup .-> Backup
+    OS -. asynchronous HTTPS batch .-> Hub
+    Browser -. HTTPS .-> Hub
 ```
 
 ### Diagram Legend
@@ -94,7 +86,7 @@ flowchart TB
 
 | Zone | Node | Hardware / operating environment | Allocated software or data | Allocation status |
 |---|---|---|---|---|
-| Factory Gate Station | Kiosk Computer | Gate-side workstation; POSIX/Linux or Windows IoT is permitted by the runtime assumptions. Python 3.12 virtual environment. | `tmc_access` package, FastAPI/Uvicorn boundary, `AccessCoordinator`, QR/policy components, SQLite repositories, turnstile adapter, and `SyncService`/`SyncRetryWorker`; local SQLite WAL database and public-key cache. | A2 prototype implemented (`create_default_app` with `MockTurnstileAdapter` and `SimulatedSyncClient` in simulation/test mode); exact hardware, OS image, service account, and service manager are unspecified. |
+| Factory Gate Station | Kiosk Computer | Gate-side workstation; POSIX/Linux or Windows IoT is permitted by the scaffold assumptions. Python 3.12 virtual environment. | `tmc_access` package, FastAPI/Uvicorn boundary, access coordinator, QR/policy components, SQLite repositories, turnstile adapter, and sync service; local SQLite database and public-key cache. | M2 target; exact hardware, OS image, service account, and service manager are unspecified. |
 | Factory Gate Station | QR Scanner | Optical scanner connected by a deployment-selected USB-HID, serial, or LAN interface. | Scanner firmware and scan envelope source. | External peripheral; exact medium is unconfirmed by A1. |
 | Factory Gate Station | Turnstile Controller | Existing industrial controller and passage sensors. | Vendor adapter boundary; deterministic mock is used for tests. | External peripheral; vendor protocol is OD-13. |
 | Factory Gate Station | Trusted Time Service | Factory LAN NTP server. | Clock synchronization source for credential time checks. | External service; exact host and NTP policy are not configured here. |
@@ -126,23 +118,20 @@ implementation allocates the following C&C components within that process:
 | Background synchronization | `SyncService`, outbox repository, and `SyncClient` | Periodic background task or daemon thread. The exact scheduler is not specified; it must not block or become a synchronous WAN dependency of the access path. |
 | Local durable state | SQLite WAL database and public-key/policy snapshots | File-backed state shared by foreground and background activities through repository ports, not direct cross-thread object mutation. |
 
-The integrated A2 prototype implements the API boundary, composition root
-(`config/container.py`), `AccessCoordinator`, `PublicKeyQrValidator`,
-`ReplayGuardStore`, `AccessPolicyEvaluator`, SQLite WAL repositories, and
-`SyncService`/`SyncRetryWorker`. In local simulation and tests, turnstile and
-Hub interactions run against `MockTurnstileAdapter` and
-`SimulatedSyncClient`/`SimulatedHubReceiver`. Production hardware packaging and
-OS service supervision remain external.
+The current scaffold exposes the API boundary and composition root, but the
+coordinator, repositories, sync service, and QR/policy business flows remain
+unimplemented. Therefore the table describes the intended hosting allocation,
+not a verified production process graph.
 
 ### 3.2 Concurrency and synchronization
 
 The foreground access path and background sync worker coordinate through the
-file-backed SQLite repositories. SQLite is configured for `journal_mode=WAL`,
-`synchronous=FULL`, `foreign_keys=ON`, and connection `timeout=0.1` s (`100` ms);
-WAL permits readers and writers to make progress under SQLite's locking rules,
-but it does not guarantee sub-millisecond locks or unlimited throughput. If a
-persistence operation times out or fails, the coordinator fails closed
-(`StorageError`) and does not unlock.
+file-backed SQLite repositories. SQLite is configured for WAL,
+`synchronous=NORMAL`, foreign keys, and `busy_timeout=5000`; WAL permits
+readers and writers to make progress under SQLite's locking rules, but it does
+not guarantee sub-millisecond locks or unlimited throughput. If a persistence
+operation exceeds the access-path budget or fails, the coordinator must fail
+closed and must not unlock.
 
 No specific systemd unit, Windows service, Docker container, supervisor, or
 other service manager is mandated. Packaging and restart policy are
@@ -265,9 +254,8 @@ SQLite-consistent snapshot procedure, not copied independently while active.
 
 The Kiosk Computer allocation corresponds to the runtime components in the
 [C&C View](component-connector-view.md) and the ports/adapters in the
-[Module View](module-view.md). The repository implements and tests the
-composition root, API boundary, QR validation, policy evaluation, access
-coordination, SQLite WAL persistence, transactional outbox, sync worker, and
-simulated turnstile/Hub adapters. Production vendor integration (OD-13),
-Hub transport authentication (OD-10), backup automation, and OS process
-supervision remain pending or external.
+[Module View](module-view.md). The repository currently verifies the
+composition-root shape, API smoke boundary, deterministic mock turnstile, and
+file-backed SQLite WAL setup. QR verification, access coordination,
+persistence, synchronization, vendor integration, backup, and production
+process supervision remain pending or external.

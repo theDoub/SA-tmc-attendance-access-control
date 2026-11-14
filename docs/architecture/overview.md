@@ -2,7 +2,9 @@
 
 **Owner:** Nguyen Tran Tuan Khai
 **Baseline:** Assignment 1 (`Assignment1_Group6.pdf`) and ADR-001..004
-**Repository status:** Integrated A2 Edge prototype. Core Edge runtime paths (Ed25519 two-part QR prototype validation, in-memory replay guard, offline policy evaluation, access coordination, SQLite WAL persistence, transactional outbox, and store-and-forward sync worker) are implemented and tested; turnstile hardware and Central Hub ingestion use deterministic/simulated adapters (`MockTurnstileAdapter`, `SimulatedSyncClient`, `SimulatedHubReceiver`), while production vendor/Hub integrations remain unimplemented or out of scope.
+**Repository status:** M2 implementation scaffold; several runtime paths remain
+unimplemented. This document describes the target architecture and identifies
+which behavior is currently verified.
 
 ## 1. Purpose and milestone scope
 
@@ -18,24 +20,10 @@ traceability to the codebase.
 
 Milestone 1 established the distributed Edge-Hub topology and ADR-001..004.
 Milestone 2 turns the Edge portion of that design into a testable Python
-implementation. The repository distinguishes four implementation categories:
-
-- **Designed architecture (A1 baseline):** Distributed Edge-Hub topology,
-  signed dynamic QR, offline-first local authorization, SQLite WAL,
-  transactional outbox, and store-and-forward synchronization (ADR-001..004).
-- **Implemented A2 prototype:** Package structure, domain models and ports,
-  `PublicKeyQrValidator` (two-part Ed25519 prototype), in-memory
-  `ReplayGuardStore`, `AccessPolicyEvaluator`, `AccessCoordinator`,
-  `SqliteAttendanceRepository` (with `next_sequence()`), `SqliteOutboxRepository`,
-  `SyncService`, `SyncRetryWorker`, FastAPI `/health` and `/scan` boundaries,
-  and unit/integration/architecture tests.
-- **Simulated components:** `MockTurnstileAdapter`, `SimulatedSyncClient`, and
-  `SimulatedHubReceiver` for deterministic testing and local sync simulation.
-- **Not implemented / out of scope:** `VendorTurnstileAdapter` (stub),
-  production Hub ingestion endpoint/auth (`HttpSyncClient` remains subject to
-  OD-10), Central Hub server/DB, QR issuance and private signing keys (OD-01),
-  policy/key distribution mechanism (OD-09), mobile application, and HR/Payroll
-  export.
+implementation. The current repository contains the package structure,
+interfaces, domain invariants, configuration, a deterministic turnstile mock,
+and smoke tests. QR verification, access coordination, persistence, outbox
+processing, and Hub synchronization are not yet implemented.
 
 ## 2. System context
 
@@ -46,31 +34,26 @@ not a performance result currently verified by the scaffold.
 
 ```mermaid
 flowchart TD
-    classDef impl fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
-    classDef sim fill:#edf7ed,stroke:#2e6f40,stroke-width:1.5px,stroke-dasharray:4 2,color:#111827
-    classDef ext fill:#f3f4f6,stroke:#6b7280,stroke-width:1.2px,stroke-dasharray:4 2,color:#1f2937
-    classDef zone fill:#ffffff,stroke:#94a3b8,stroke-width:1.2px,color:#111827
-
-    subgraph HubZone["Central Management Hub (Designed / Out of M2 Scope)"]
-        Hub["Modular Monolith Hub<br/>(QR Issuance, Ingestion, Policy)"]:::ext
-        HubDB[("Central Database")]:::ext
-        Payroll["Existing HR / Payroll System"]:::ext
+    subgraph HubZone["Central Management Hub (out of M2 scope)"]
+        Hub["Modular Monolith Hub"]
+        HubDB[("Central database")]
+        Payroll["Existing HR/Payroll system"]
         Hub <--> HubDB
         Hub -->|Scheduled batch export| Payroll
     end
 
-    Phone["Employee Mobile App<br/>(External)"]:::ext -.->|Presents dynamic QR| Scanner["QR Scanner<br/>(External peripheral)"]:::ext
+    Phone["Employee mobile app"] -.->|Presents dynamic QR| Scanner["QR scanner"]
 
-    subgraph EdgeZone["Factory Gate Station (M2 Scope)"]
-        Scanner -->|Raw payload| API["FastAPI Boundary<br/>(/health, /scan)"]:::impl
-        subgraph Kiosk["Kiosk Runtime: tmc_access"]
-            Coordinator["AccessCoordinator"]:::impl
-            Validator["PublicKeyQrValidator +<br/>ReplayGuardStore"]:::impl
-            Policy["AccessPolicyEvaluator"]:::impl
-            Gate["GateAdapter<br/>(Mock implemented; Vendor OD-13)"]:::sim
-            Repo["SqliteAttendanceRepository +<br/>SqliteOutboxRepository"]:::impl
-            Sync["SyncService + SyncRetryWorker<br/>(SimulatedSyncClient; Http OD-10)"]:::sim
-            Local[("File-backed SQLite WAL<br/>(edge.db)")]:::impl
+    subgraph EdgeZone["Factory Gate Station (M2 scope)"]
+        Scanner -->|Raw payload| API["Scanner/API boundary"]
+        subgraph Kiosk["Kiosk runtime: tmc_access"]
+            Coordinator["AccessCoordinator"]
+            Validator["QrValidator"]
+            Policy["AccessPolicyEngine"]
+            Gate["GateAdapter"]
+            Repo["AttendanceRepository"]
+            Sync["SyncService"]
+            Local[("File-backed SQLite WAL")]
 
             Coordinator --> Validator
             Coordinator --> Policy
@@ -80,13 +63,11 @@ flowchart TD
             Sync --> Local
         end
         API --> Coordinator
-        Gate <-->|Unlock & passage status| Turnstile["Turnstile Controller<br/>(External hardware)"]:::ext
+        Gate <-->|Vendor API or deterministic mock| Turnstile["Turnstile controller"]
     end
 
-    Sync -.->|"Async batch sync<br/>(Simulated / OD-10)"| Hub
-    Hub -.->|"Policy & public-key distribution<br/>(Pending OD-09)"| Kiosk
-
-    class HubZone,EdgeZone,Kiosk zone
+    Sync -.->|Asynchronous batch synchronization| Hub
+    Hub -.->|Policy and public-key distribution. Mechanisms pending| Kiosk
 ```
 
 The Hub, mobile application, HR/Payroll system, and proprietary hardware
@@ -121,15 +102,15 @@ boundaries and does not implement their internal behavior.
 
 | Driver | Target or requirement | Design mechanism | Current status |
 |---|---|---|---|
-| NFR1: performance | Kiosk access path <= 2 seconds; local target <= 340 ms | Local QR, policy, persistence, and gate operations; no synchronous WAN call | Target; local flow implemented, 2-5 TPS capacity not benchmarked |
-| NFR2/NFR7: survivability | Continue local decisions during WAN loss; policy cache fresh for 5 minutes (300 s) and usable while stale for up to 2 hours (7200 s) | Local cache, SQLite, transactional outbox, store-and-forward | Implemented A2 prototype (`AccessPolicyEvaluator`, SQLite repositories, `SyncService`); Hub client simulated |
-| NFR2: data integrity | Avoid loss across process or power failure | SQLite WAL (`synchronous=FULL`, `foreign_keys=ON`), pre-unlock `AccessAttempt`, and atomic attendance-plus-outbox write | Implemented A2 prototype and tested (`SqliteAttendanceRepository`, `SqliteOutboxRepository`) |
-| NFR4: security | Prevent QR cloning/replay and avoid PII exposure | Short-lived signed credentials, public-key verification, replay guard, opaque subject | Implemented A2 prototype (`PublicKeyQrValidator` Ed25519 two-part prototype, in-memory `ReplayGuardStore`); issuance/restart behavior remain open (OD-01, OD-08) |
-| Interoperability | Isolate hardware and Hub changes | `GateAdapter` and `SyncClient` domain ports | Ports defined; `MockTurnstileAdapter` and `SimulatedSyncClient` implemented; vendor/production Hub adapters remain open (OD-10, OD-13) |
+| NFR1: performance | Kiosk access path <= 2 seconds; local target <= 340 ms | Local QR, policy, persistence, and gate operations; no synchronous WAN call | Target; not benchmarked |
+| NFR2/NFR7: survivability | Continue local decisions during WAN loss; policy cache fresh for 5 minutes and usable while stale for up to 2 hours | Local cache, SQLite, transactional outbox, store-and-forward | Configuration exists; runtime paths pending |
+| NFR2: data integrity | Avoid loss across process or power failure | SQLite WAL and atomic attendance-plus-outbox write | WAL smoke-tested; repositories pending |
+| NFR4: security | Prevent QR cloning/replay and avoid PII exposure | Short-lived signed credentials, public-key verification, replay guard, opaque subject | Ports exist; validator pending |
+| Interoperability | Isolate hardware and Hub changes | `GateAdapter` and `SyncClient` domain ports | Ports exist; concrete integrations pending |
 
-These are architectural requirements and implementation targets. The prototype
-does not yet benchmark 99.99% availability, zero data loss under every power
-failure mode, 2-5 TPS capacity, or the stated latency budget.
+These are architectural requirements and implementation targets. The scaffold
+does not yet prove 99.99% availability, zero data loss under every failure
+mode, 2-5 TPS capacity, or the stated latency budget.
 
 ## 5. Architectural decisions and governance
 
@@ -229,17 +210,16 @@ already defined.
 
 | Requirement or concern | Governing view or contract | Codebase location | Verification status |
 |---|---|---|---|
-| Dynamic QR verification and anti-replay | Module, C&C, contracts | `domain/interfaces/qr.py`, `infrastructure/qr/public_key_validator.py`, `infrastructure/qr/replay_guard.py` | Implemented A2 prototype (Ed25519 2-part token, 0 s skew, in-memory replay guard); unit tests pass |
-| Offline policy evaluation | Module, C&C, contracts | `domain/interfaces/access.py`, `domain/policies/evaluator.py` | Implemented A2 prototype (`fresh_for=300s`, `max_stale_for=7200s`); unit tests pass |
-| Access coordination | C&C, contracts | `application/access/coordinator.py` | Implemented A2 prototype (`AccessCoordinator`); unit & integration tests pass |
-| Turnstile isolation | Module, Allocation, contracts | `domain/interfaces/gate.py`, `infrastructure/turnstile/` | `MockTurnstileAdapter` implemented and tested; `VendorTurnstileAdapter` stubbed (OD-13) |
-| Lifecycle type separation | Contracts, C&C | `domain/models/access.py`, `gate.py`, `attendance.py` | Domain models (`controller_ack`, `source_sequence`, `confirmation_evidence`) and invariant tests pass |
-| Local WAL persistence | C&C, Allocation, contracts | `infrastructure/persistence/sqlite.py` | Implemented A2 prototype (`WAL`, `synchronous=FULL`, `foreign_keys=ON`, `timeout=0.1` s, `next_sequence()`); integration tests pass |
-| Store-and-forward synchronization | Module, C&C, contracts | `application/synchronization/`, `infrastructure/synchronization/`, `domain/interfaces/sync.py` | `SyncService`, `SyncRetryWorker`, `SimulatedSyncClient`, `SimulatedHubReceiver` implemented; `HttpSyncClient` remains open (OD-10) |
-| Layer dependency direction | Module View | `tests/unit/test_smoke_architecture.py` | Architecture tests pass |
-| Composition-root wiring | Module View | `config/container.py`, `tests/unit/test_wiring.py` | Wiring implemented and tested |
+| Dynamic QR verification and anti-replay | Module, C&C, contracts | `domain/interfaces/qr.py`, `infrastructure/qr/` | Port/scaffold only |
+| Offline policy evaluation | Module, C&C, contracts | `domain/interfaces/access.py`, `domain/policies/` | Port/scaffold only |
+| Access coordination | C&C, contracts | `application/access/coordinator.py` | `NotImplementedError` |
+| Turnstile isolation | Module, Allocation, contracts | `domain/interfaces/gate.py`, `infrastructure/turnstile/` | Mock implemented; vendor stub |
+| Lifecycle type separation | Contracts, C&C | `domain/models/access.py`, `gate.py`, `attendance.py` | Invariant tests pass |
+| Local WAL persistence | C&C, Allocation, contracts | `infrastructure/persistence/sqlite.py` | WAL setup tested; repositories pending |
+| Store-and-forward synchronization | Module, C&C, contracts | `application/synchronization/`, `infrastructure/synchronization/`, `domain/interfaces/sync.py` | Service/client pending |
+| Layer dependency direction | Module View | `tests/unit/test_smoke_architecture.py` | Architecture tests implemented |
+| Composition-root wiring | Module View | `config/container.py`, `tests/unit/test_wiring.py` | Wiring tested; flows pending |
 
-This traceability table describes the integrated A2 implementation honestly:
-core Edge flows are implemented and verified with unit/integration tests, while
-turnstile hardware and Central Hub ingestion rely on simulated adapters and
-open decisions remain tracked in `decisions.md`.
+This traceability table describes the intended implementation mapping and
+reports scaffold status honestly; passing smoke tests do not imply that the
+pending business flows are complete.
