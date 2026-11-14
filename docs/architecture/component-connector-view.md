@@ -26,20 +26,27 @@ outside M2; only the `SyncClient` boundary is represented here.
 
 ```mermaid
 flowchart LR
-    Phone[Employee phone] -. dynamic signed QR .-> Scanner[Optical QR scanner]
-    Scanner -->|scan envelope| API[Scan Receiver / API Boundary]
-    subgraph Kiosk["Kiosk process: tmc_access"]
-        API --> COORD[AccessCoordinator]
-        COORD --> QR[PublicKeyQrValidator + ReplayGuardStore]
-        COORD --> POLICY[AccessPolicyEvaluator]
-        COORD --> DB[SQLite repositories]
-        COORD --> GATE[TurnstileAdapter]
-        SYNC[SyncService + SyncRetryWorker] --> DB
+    classDef impl fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
+    classDef sim fill:#edf7ed,stroke:#2e6f40,stroke-width:1.5px,stroke-dasharray:4 2,color:#111827
+    classDef ext fill:#f3f4f6,stroke:#6b7280,stroke-width:1.2px,stroke-dasharray:4 2,color:#1f2937
+    classDef zone fill:#ffffff,stroke:#94a3b8,stroke-width:1.2px,color:#111827
+
+    Phone["Employee Phone"]:::ext -.->|Dynamic signed QR| Scanner["Optical QR Scanner"]:::ext
+    Scanner -->|Scan envelope| API["Scan Receiver / API Boundary<br/>(FastAPI /scan)"]:::impl
+    subgraph Kiosk["Kiosk Process: tmc_access"]
+        API --> COORD["AccessCoordinator"]:::impl
+        COORD --> QR["PublicKeyQrValidator +<br/>ReplayGuardStore"]:::impl
+        COORD --> POLICY["AccessPolicyEvaluator"]:::impl
+        COORD --> DB[("SQLite WAL Repositories<br/>(access_attempts, attendance_records, outbox_events)")]:::impl
+        COORD --> GATE["TurnstileAdapter<br/>(Mock implemented; Vendor OD-13)"]:::sim
+        SYNC["SyncService + SyncRetryWorker<br/>(SimulatedSyncClient; Http OD-10)"]:::sim --> DB
     end
-    GATE <-->|unlock and passage status| CTRL[Turnstile controller]
-    SYNC -. HTTPS batch, asynchronous .-> HUB[Central Hub ingestion API]
-    HUB -. deferred policy/key distribution .-> QR
-    HUB -. deferred policy/key distribution .-> POLICY
+    GATE <-->|Unlock & passage status| CTRL["Turnstile Controller<br/>(Hardware / Mock)"]:::ext
+    SYNC -.->|"Async batch sync<br/>(Simulated / OD-10)"| HUB["Central Hub Ingestion API<br/>(Out of M2 scope)"]:::ext
+    HUB -.->|"Policy & key distribution<br/>(Pending OD-09)"| QR
+    HUB -.->|"Policy & key distribution<br/>(Pending OD-09)"| POLICY
+
+    class Kiosk zone
 ```
 
 The diagram is a runtime interaction view, not a deployment guarantee. The
@@ -109,27 +116,29 @@ sequenceDiagram
     participant S as Scanner
     participant A as API Boundary
     participant C as AccessCoordinator
-    participant V as QR + Replay
-    participant P as Policy
-    participant R as SQLite repositories
-    participant G as TurnstileAdapter
+    participant V as QrValidator
+    participant P as AccessPolicyEngine
+    participant R as AttendanceRepository
+    participant G as GateAdapter
     S->>A: ScanInput (payload, station, gate, direction)
-    A->>C: process_scan(scan)
-    C->>V: validate(payload, station, now)
-    V-->>C: valid credential
-    C->>P: evaluate(credential, gate, direction, now)
-    P-->>C: ALLOW
+    A->>C: handle_scan(scan)
+    C->>V: validate(payload, station, received_at)
+    V-->>C: QrValidationResult (valid credential)
+    C->>P: evaluate(credential, gate, direction, received_at)
+    P-->>C: AccessDecision (ALLOW)
     C->>R: save_attempt(ALLOWED_PERSISTED)
     R-->>C: committed (Phase 1)
     C->>G: unlock(command_id, gate, direction, 800 ms)
-    G-->>C: ACKNOWLEDGED
+    G-->>C: GateCommandResult (ACKNOWLEDGED)
+    C->>R: update_attempt(UNLOCK_ACKNOWLEDGED)
     C->>G: query_passage(command_id, 15 s)
-    G-->>C: CONFIRMED
+    G-->>C: PassageStatus (CONFIRMED)
+    C->>R: update_attempt(PASSAGE_CONFIRMED)
     C->>R: next_sequence()
     R-->>C: source_sequence
     C->>R: save_record_with_outbox(record)
     R-->>C: atomic commit (Phase 2)
-    C-->>A: AccessOutcome (PASSAGE_CONFIRMED)
+    C-->>A: AccessAttempt (PASSAGE_CONFIRMED)
 ```
 
 1. The scanner sends an envelope containing request, station, gate, direction,

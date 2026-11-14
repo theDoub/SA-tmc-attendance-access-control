@@ -26,6 +26,7 @@ above and does not claim that OD-04 or OD-05 has been formally resolved.
 
 ```mermaid
 classDiagram
+    direction TB
     class AccessCoordinator {
       +handle_scan(ScanInput) AccessAttempt
     }
@@ -37,7 +38,9 @@ classDiagram
       <<interface>>
       +evaluate(credential, gate_id, direction, now) AccessDecision
     }
-    class AccessPolicyEvaluator
+    class AccessPolicyEvaluator {
+      +evaluate(credential, gate_id, direction, now) AccessDecision
+    }
     class PolicySnapshotProvider {
       <<interface>>
       +get_snapshot() PolicySnapshot
@@ -52,7 +55,9 @@ classDiagram
       +save_attempt(AccessAttempt)
       +update_attempt(AccessAttempt)
       +save_record_with_outbox(AttendanceRecord)
+      +next_sequence() int
     }
+    class PolicySnapshot
     class AccessAttempt
     class AttendanceRecord
 
@@ -60,11 +65,11 @@ classDiagram
     AccessCoordinator --> AccessPolicyEngine
     AccessCoordinator --> GateAdapter
     AccessCoordinator --> AttendanceRepository
+    AccessCoordinator ..> AccessAttempt
+    AccessCoordinator ..> AttendanceRecord
     AccessPolicyEvaluator ..|> AccessPolicyEngine
     AccessPolicyEvaluator --> PolicySnapshotProvider
-    AccessPolicyEvaluator --> PolicySnapshot
-    AccessCoordinator --> AccessAttempt
-    AccessCoordinator --> AttendanceRecord
+    AccessPolicyEvaluator ..> PolicySnapshot
 ```
 
 ## Decision flow
@@ -78,28 +83,35 @@ sequenceDiagram
     participant Repo as AttendanceRepository
     participant Gate as GateAdapter
 
-    Scanner->>Coordinator: ScanInput
+    Scanner->>Coordinator: handle_scan(ScanInput)
     Coordinator->>QR: validate(payload, station, received_at)
     alt QR rejected
         Coordinator->>Repo: save_attempt(DENIED)
+        Coordinator-->>Scanner: AccessAttempt (DENIED)
     else QR valid
-        Coordinator->>Policy: evaluate(credential, gate, direction, now)
+        Coordinator->>Policy: evaluate(credential, gate, direction, received_at)
         alt Policy denied
             Coordinator->>Repo: save_attempt(DENIED)
+            Coordinator-->>Scanner: AccessAttempt (DENIED)
         else Policy allowed
             Coordinator->>Repo: save_attempt(ALLOWED_PERSISTED)
             Repo-->>Coordinator: durable success
-            Coordinator->>Gate: unlock(attempt_id, gate, direction, timeout)
+            Coordinator->>Gate: unlock(attempt_id, gate, direction, timeout_ms)
             alt Unlock not acknowledged
-                Coordinator->>Repo: update_attempt(failure status)
+                Coordinator->>Repo: update_attempt(UNLOCK_REJECTED / TIMEOUT / UNAVAILABLE)
+                Coordinator-->>Scanner: AccessAttempt (failure status)
             else Unlock acknowledged
                 Coordinator->>Repo: update_attempt(UNLOCK_ACKNOWLEDGED)
-                Coordinator->>Gate: query_passage(attempt_id, window)
+                Coordinator->>Gate: query_passage(attempt_id, window_seconds)
                 alt Passage confirmed
                     Coordinator->>Repo: update_attempt(PASSAGE_CONFIRMED)
+                    Coordinator->>Repo: next_sequence()
+                    Repo-->>Coordinator: source_sequence
                     Coordinator->>Repo: save_record_with_outbox(record)
+                    Coordinator-->>Scanner: AccessAttempt (PASSAGE_CONFIRMED)
                 else Passage unresolved
                     Coordinator->>Repo: update_attempt(PASSAGE_UNRESOLVED)
+                    Coordinator-->>Scanner: AccessAttempt (PASSAGE_UNRESOLVED)
                 end
             end
         end

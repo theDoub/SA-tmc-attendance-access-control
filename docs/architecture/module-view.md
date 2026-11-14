@@ -43,13 +43,17 @@ with inward layered dependencies**:
 
 ```mermaid
 flowchart LR
-    P["presentation.api<br/>FastAPI / scan boundary"] --> A["application<br/>AccessCoordinator / SyncService"]
-    I["infrastructure<br/>QR / turnstile / persistence / sync"] --> D["domain<br/>models / interfaces / policies / errors"]
+    classDef core fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
+    classDef outer fill:#f8fafc,stroke:#475569,stroke-width:1.4px,color:#111827
+    classDef root fill:#edf7ed,stroke:#2e6f40,stroke-width:1.4px,color:#111827
+
+    C["config<br/>settings / container"]:::root --> P["presentation.api<br/>FastAPI /health, /scan"]:::outer
+    C --> A["application<br/>AccessCoordinator / SyncService"]:::outer
+    C --> I["infrastructure<br/>QR / turnstile / SQLite / sync"]:::outer
+    C --> D["domain<br/>models / interfaces / policies / errors"]:::core
+    P --> A
     A --> D
-    C["config<br/>settings / composition root"] --> P
-    C --> A
-    C --> I
-    C --> D
+    I --> D
 ```
 
 ### Diagram Legend

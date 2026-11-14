@@ -38,38 +38,46 @@ provisioned by this repository.
 
 ```mermaid
 flowchart TB
-    subgraph User["User Device Zone (external)"]
-        Phone[Employee smartphone<br/>dynamic signed QR]
-        Browser[Supervisor / HR browser]
+    classDef impl fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
+    classDef ext fill:#f3f4f6,stroke:#6b7280,stroke-width:1.2px,stroke-dasharray:4 2,color:#1f2937
+    classDef zone fill:#ffffff,stroke:#94a3b8,stroke-width:1.2px,color:#111827
+
+    subgraph User["User Device Zone (External / Out of M2 Scope)"]
+        Phone["Employee Smartphone<br/>(Dynamic signed QR)"]:::ext
+        Browser["Supervisor / HR Browser"]:::ext
     end
 
-    subgraph Factory["Factory Gate Station Zone (M2 allocation target)"]
-        subgraph Lane["One gate lane"]
-            Scanner[QR scanner]
+    subgraph Factory["Factory Gate Station Zone (M2 Target)"]
+        subgraph Lane["One Gate Lane"]
+            Scanner["QR Scanner<br/>(USB / Serial / LAN)"]:::ext
             subgraph Kiosk["Kiosk Computer"]
-                OS["POSIX/Linux or Windows IoT<br/>Python 3.12 + .venv"]
-                DB[(data/edge.db<br/>SQLite WAL)]
-                Keys[keys/public<br/>public verification keys]
+                Runtime["tmc_access Runtime<br/>(POSIX/Linux or Windows IoT, Python 3.12)"]:::impl
+                DB[("data/edge.db<br/>(SQLite WAL)")]:::impl
+                Keys["keys/public/<br/>(Public verification keys)"]:::impl
+                Runtime --> DB
+                Runtime --> Keys
             end
-            Turnstile[Turnstile controller]
+            Turnstile["Turnstile Controller"]:::ext
         end
-        NTP[Trusted factory time service]
-        Backup[Factory LAN backup storage]
+        NTP["Trusted Factory NTP<br/>(External LAN time source)"]:::ext
+        Backup["Factory LAN Backup Storage<br/>(Planned, not implemented)"]:::ext
     end
 
-    subgraph Central["Central Server Zone (out of M2 scope)"]
-        Hub[Central Management Hub<br/>modular monolith]
-        HubDB[(Central database)]
+    subgraph Central["Central Server Zone (External / Out of M2 Scope)"]
+        Hub["Central Management Hub<br/>(Modular monolith)"]:::ext
+        HubDB[("Central Database")]:::ext
         Hub --> HubDB
     end
 
-    Phone -. optical presentation .-> Scanner
-    Scanner -->|local ingress| OS
-    OS <-->|unlock / passage| Turnstile
-    OS -. NTP .-> NTP
-    OS -. snapshot / backup .-> Backup
-    OS -. asynchronous HTTPS batch .-> Hub
-    Browser -. HTTPS .-> Hub
+    Phone -.->|Optical presentation| Scanner
+    Scanner -->|Local ingress| Runtime
+    Runtime <-->|"Unlock / passage<br/>(Mock / OD-13)"| Turnstile
+    NTP -.->|"Clock sync (NTP UDP 123)"| Runtime
+    Runtime -.->|"Snapshot / backup (planned)"| Backup
+    Runtime -.->|"Async HTTPS batch (OD-10)"| Hub
+    Browser -.->|HTTPS| Hub
+
+    class User,Factory,Lane,Kiosk,Central zone
 ```
 
 ### Diagram Legend

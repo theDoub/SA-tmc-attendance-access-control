@@ -46,26 +46,31 @@ not a performance result currently verified by the scaffold.
 
 ```mermaid
 flowchart TD
-    subgraph HubZone["Central Management Hub (out of M2 scope)"]
-        Hub["Modular Monolith Hub"]
-        HubDB[("Central database")]
-        Payroll["Existing HR/Payroll system"]
+    classDef impl fill:#eaf4fc,stroke:#1f5a8a,stroke-width:1.5px,color:#111827
+    classDef sim fill:#edf7ed,stroke:#2e6f40,stroke-width:1.5px,stroke-dasharray:4 2,color:#111827
+    classDef ext fill:#f3f4f6,stroke:#6b7280,stroke-width:1.2px,stroke-dasharray:4 2,color:#1f2937
+    classDef zone fill:#ffffff,stroke:#94a3b8,stroke-width:1.2px,color:#111827
+
+    subgraph HubZone["Central Management Hub (Designed / Out of M2 Scope)"]
+        Hub["Modular Monolith Hub<br/>(QR Issuance, Ingestion, Policy)"]:::ext
+        HubDB[("Central Database")]:::ext
+        Payroll["Existing HR / Payroll System"]:::ext
         Hub <--> HubDB
         Hub -->|Scheduled batch export| Payroll
     end
 
-    Phone["Employee mobile app"] -.->|Presents dynamic QR| Scanner["QR scanner"]
+    Phone["Employee Mobile App<br/>(External)"]:::ext -.->|Presents dynamic QR| Scanner["QR Scanner<br/>(External peripheral)"]:::ext
 
-    subgraph EdgeZone["Factory Gate Station (M2 scope)"]
-        Scanner -->|Raw payload| API["Scanner/API boundary"]
-        subgraph Kiosk["Kiosk runtime: tmc_access"]
-            Coordinator["AccessCoordinator"]
-            Validator["QrValidator"]
-            Policy["AccessPolicyEngine"]
-            Gate["GateAdapter"]
-            Repo["AttendanceRepository"]
-            Sync["SyncService"]
-            Local[("File-backed SQLite WAL")]
+    subgraph EdgeZone["Factory Gate Station (M2 Scope)"]
+        Scanner -->|Raw payload| API["FastAPI Boundary<br/>(/health, /scan)"]:::impl
+        subgraph Kiosk["Kiosk Runtime: tmc_access"]
+            Coordinator["AccessCoordinator"]:::impl
+            Validator["PublicKeyQrValidator +<br/>ReplayGuardStore"]:::impl
+            Policy["AccessPolicyEvaluator"]:::impl
+            Gate["GateAdapter<br/>(Mock implemented; Vendor OD-13)"]:::sim
+            Repo["SqliteAttendanceRepository +<br/>SqliteOutboxRepository"]:::impl
+            Sync["SyncService + SyncRetryWorker<br/>(SimulatedSyncClient; Http OD-10)"]:::sim
+            Local[("File-backed SQLite WAL<br/>(edge.db)")]:::impl
 
             Coordinator --> Validator
             Coordinator --> Policy
@@ -75,11 +80,13 @@ flowchart TD
             Sync --> Local
         end
         API --> Coordinator
-        Gate <-->|Vendor API or deterministic mock| Turnstile["Turnstile controller"]
+        Gate <-->|Unlock & passage status| Turnstile["Turnstile Controller<br/>(External hardware)"]:::ext
     end
 
-    Sync -.->|Asynchronous batch synchronization| Hub
-    Hub -.->|Policy and public-key distribution. Mechanisms pending| Kiosk
+    Sync -.->|"Async batch sync<br/>(Simulated / OD-10)"| Hub
+    Hub -.->|"Policy & public-key distribution<br/>(Pending OD-09)"| Kiosk
+
+    class HubZone,EdgeZone,Kiosk zone
 ```
 
 The Hub, mobile application, HR/Payroll system, and proprietary hardware
