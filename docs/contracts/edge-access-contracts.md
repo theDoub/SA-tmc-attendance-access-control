@@ -47,16 +47,18 @@ A1 inconsistency to resolve (OD-04): A1 Figure 4 step 4B writes "attempt + pendi
 | | |
 |---|---|
 | Responsibility | Verify format, signature, audience, expiry, key status and anti-replay state using locally cached **public** keys [A1 Table 10, §3.5.4] |
+| Prototype token format | Two-part prototype: `base64url(JSON_payload).base64url(Ed25519_signature)` (max 8192 chars, rejects duplicate JSON keys) |
+| Implemented verification | **Ed25519** signature verification (`PublicKeyQrValidator`); required string claims `sub`, `jti`, `kid`, `aud`, `iss` and integer claims `iat`, `exp`; `iss` matched against `trusted_issuer`; `aud` matched against `station_id` (`WRONG_AUDIENCE`); **0 s clock skew** (`now >= exp` → `EXPIRED`, `now < iat` → `CLOCK_UNRELIABLE`; `TMC_QR_CLOCK_SKEW_SECONDS` defaults to `None`) |
 | Input | raw payload (secret-like, never logged/persisted [A1 Table 15]), `station_id`, `now` [A1 Table 16] |
 | Output | `QrValidationResult`: VALID with `VerifiedCredential` (subject, token id, key version, iat, exp) or a reject outcome: `INVALID_SIGNATURE`, `EXPIRED`, `REPLAYED`, `MALFORMED`, `WRONG_AUDIENCE`, `UNKNOWN_KEY`, `CLOCK_UNRELIABLE` [Proposed enum, values derived from A1 Tables 10/17] |
 | Errors | `QrError` (infrastructure failure), `StorageError` (replay state unavailable → fail closed) |
 | Rejected input | Deny **without** calling the gate [A1 Table 17] |
 
 **QR security boundaries**
-- Edge holds **public verification keys only**; private signing keys stay in the Hub key-management module [A1 ADR-002 item 5]. The scaffold contains no signing, issuing or private-key handling, and none may be added to Edge code or phones without an architecture review.
-- **[Pending] OD-01:** A1 says the mobile app "generates" the signed token (ADR-002 item 1) and also that the phone "retrieves" a 60 s QR from the central server (§4.1.3; Fig. 5 labels the Hub backend "QR Issuance"). Who signs, and how the phone obtains a token, is undecided.
-- **[Pending] OD-02:** payload claims differ between ADR-002 and §3.5.4. The `VerifiedCredential` fields are the intersection plus `jti`, **[Proposed]**.
-- **[Pending] OD-03:** validity 30–60 s (ADR-002) vs 60 s (§4.1.3).
+- Edge holds **public verification keys only**; private signing keys stay in the Hub key-management module [A1 ADR-002 item 5]. The repository contains no signing, issuing or private-key handling in Edge runtime code, and none may be added to Edge code or phones without an architecture review.
+- **[Pending] OD-01:** A1 says the mobile app "generates" the signed token (ADR-002 item 1) and also that the phone "retrieves" a 60 s QR from the central server (§4.1.3; Fig. 5 labels the Hub backend "QR Issuance"). Who signs, and how the phone obtains a token, remains undecided.
+- **[Pending] OD-02:** payload claims differ between ADR-002 and §3.5.4. The `VerifiedCredential` fields are the intersection plus `jti`, **[Proposed]**. The A2 prototype validates `sub`, `jti`, `kid`, `aud`, `iss`, `iat`, `exp` (no `ver` claim).
+- **[Pending] OD-03:** validity 30–60 s (ADR-002) vs 60 s (§4.1.3); the prototype does not yet enforce a maximum `exp - iat` window.
 
 **Anti-replay responsibilities** [A1 §3.5.4 states the cache exists; the rest is Proposed]
 | Concern | Owner |
@@ -91,21 +93,23 @@ A1 inconsistency to resolve (OD-04): A1 Figure 4 step 4B writes "attempt + pendi
 | | |
 |---|---|
 | Responsibility | Durable local storage of attempts and records [A1 Table 10 Local Store & Outbox] |
+| SQLite PRAGMAs & timeout | File-backed SQLite (`TMC_SQLITE_PATH`, default `data/edge.db`): `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = FULL`, `PRAGMA foreign_keys = ON`, connection `timeout = 0.1` s (100 ms) |
+| Real tables & columns | `access_attempts` (`access_attempt_id`, `station_id`, `gate_id`, `direction`, `received_at`, `status`, `subject_id`, `reason_code`); `attendance_records` (`transaction_id`, `access_attempt_id`, `employee_id`, `factory_id`, `station_id`, `gate_id`, `direction`, `event_time`, `confirmation_evidence`, `time_quality` [`RELIABLE`, `UNRELIABLE`], `source_sequence`, `policy_version`, `controller_ack`) |
 | Operations | `save_attempt`, `update_attempt`, `save_record_with_outbox` (atomic; idempotent on `transaction_id`), `next_sequence` |
-| Record fields | `transaction_id`, `access_attempt_id`, employee, factory/station/gate, direction, event time, confirmation evidence, `controller_ack`, `source_sequence`, `policy_version`, sync status, time quality [A1 Table 30, §3.5.5] |
+| Record fields | `transaction_id`, `access_attempt_id`, employee, factory/station/gate, direction, event time, `confirmation_evidence`, `controller_ack`, `source_sequence`, `policy_version`, sync status, time quality [A1 Table 30, §3.5.5] |
 | Errors | `StorageError`: no unlock after a failed attempt write; never claim attendance success after a failed write; neither row may exist after a failed atomic write [A1 Tables 16/32] |
-| Pending | OD-11: sequence numbers are currently monotonic per kiosk SQLite DB (`next_sequence`); per-gate vs per-kiosk scope remains open for production confirmation |
+| Pending | OD-11: `source_sequence` is currently generated monotonically per kiosk SQLite DB (`next_sequence()`); per-gate vs per-kiosk scope and durability level (`synchronous=FULL` vs `NORMAL`) remain open for production confirmation |
 
 ### 2.5 Outbox Repository: `OutboxRepository` (owner: Nhật)
-`get_pending(batch_size)` (oldest first), `mark_synchronized(ids)` (only Hub-accepted ids), `mark_rejected(id, reason)` (quarantine, stop retries for that record only), `mark_conflict(id)` (never SYNCED) [A1 Table 31]. Retention (30 days after ack; pending never deleted), capacity alerts (70%/85%) [A1 §4.3.6] are operational and out of scaffold scope.
+Backed by `outbox_events` (`transaction_id`, `sync_status` [`PENDING`, `SYNCED`, `REJECTED`, `CONFLICT`], `created_at`, `rejection_reason`): `get_pending(batch_size)` (oldest first), `mark_synchronized(ids)` (only Hub-accepted ids), `mark_rejected(id, reason)` (quarantine, stop retries for that record only), `mark_conflict(id)` (never `SYNCED`) [A1 Table 31]. Retention (30 days after ack; pending never deleted), capacity alerts (70%/85%) [A1 §4.3.6] are operational and out of A2 prototype scope.
 
 ### 2.6 Synchronization Client: `SyncClient` (owner: Nhật)
 | | |
 |---|---|
-| Responsibility | Push a batch to the Hub, at-least-once [A1 §3.5.5] |
+| Responsibility | Push a batch to the Hub, at-least-once [A1 §3.5.5] (`SimulatedSyncClient` + `SimulatedHubReceiver` implemented for simulation/tests; `HttpSyncClient` stubbed) |
 | Output | `SyncResult(accepted_ids, rejected, conflict_ids)` |
-| Errors | `SyncError`: transient; records stay PENDING |
-| Retry | Backoff 5/10/20/40/60 s with 80–100% jitter [A1 §4.3.5] is **configuration** (`TMC_SYNC_BACKOFF_*`, `infrastructure/synchronization/backoff.py`), deliberately outside the domain |
+| Errors | `SyncError`: transient; records stay `PENDING` |
+| Retry | Backoff `(5, 10, 20, 40, 60)` s (`TMC_SYNC_BACKOFF_DELAYS_SECONDS`) with `0.8-1.0` jitter (`TMC_SYNC_BACKOFF_JITTER_MIN=0.8`, `TMC_SYNC_BACKOFF_JITTER_MAX=1.0`) [A1 §4.3.5] is **configuration** (`infrastructure/synchronization/backoff.py`), deliberately outside the domain |
 | Not defined | Hub API schema, endpoint paths; transport auth (OD-10) |
 
 ## 3. Idempotency
@@ -114,9 +118,22 @@ A1 inconsistency to resolve (OD-04): A1 Figure 4 step 4B writes "attempt + pendi
 - Identifier naming differs across A1 (`eventId`, `transaction_id`, `accessAttemptId`, `access_request_id`). **[Proposed]** mapping: event = `transaction_id`, attempt = `access_attempt_id` (OD-06).
 - Duplicate semantics [A1 Table 31]: same id + identical content → success ack, no new record; same id + conflicting content → conflict, keep record, do not mark synced. ACK lost → resend with the original id [A1 Table 32].
 
-## 4. Offline processing
+## 4. Offline processing and response-time target
 
 Local access decisions never wait on a Hub call [A1 §2.2, Table 13]. Synchronization is a separate asynchronous concern: nothing in stages 1–6 depends on stage 7. OD-07 notes one A1 exception (500 ms central fallback) which is not adopted here.
+
+Target latency budget from A1 / C&C View (design target, not benchmarked in A2):
+
+| Processing stage | Target | Hard timeout / fallback |
+|---|---:|---|
+| Scan capture and envelope parsing | ≤ 30 ms | 100 ms; reject malformed input |
+| Cryptographic verification and anti-replay | ≤ 20 ms | 50 ms; deny invalid or expired input |
+| Local policy evaluation | ≤ 10 ms | 50 ms; deny stale or missing policy |
+| Phase 1 `AccessAttempt` WAL commit | ≤ 30 ms | 200 ms; fail closed and do not unlock |
+| Turnstile unlock | ≤ 200 ms | 800 ms; store timeout/error and fail closed |
+| API HTTP response | ≤ 50 ms | 300 ms |
+| **Ingress authorization total** | **≤ 340 ms** | **≤ 1,500 ms** (within 2,000 ms kiosk budget) |
+| Passage detection | asynchronous | Separate 15,000 ms monitoring window |
 
 ## 5. Failure taxonomy
 
