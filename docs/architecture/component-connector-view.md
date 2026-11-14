@@ -25,22 +25,87 @@ external devices or services. The Hub and HR/Payroll implementation are
 outside M2; only the `SyncClient` boundary is represented here.
 
 ```mermaid
-flowchart LR
-    Phone[Employee phone] -. dynamic signed QR .-> Scanner[Optical QR scanner]
-    Scanner -->|scan envelope| API[Scan Receiver / API Boundary]
-    subgraph Kiosk["Kiosk process: tmc_access"]
-        API --> COORD[AccessCoordinator]
-        COORD --> QR[PublicKeyQrValidator + ReplayGuardStore]
-        COORD --> POLICY[AccessPolicyEvaluator]
-        COORD --> DB[SQLite repositories]
-        COORD --> GATE[TurnstileAdapter]
-        SYNC[SyncService background worker] --> DB
-        COORD --> DISPLAY[Kiosk Display / Annunciator]
+flowchart TB
+    %% --- Subgraph Styles & Component Classes ---
+    classDef comp fill:#E8F4FD,stroke:#1565C0,stroke-width:2px;
+    classDef store fill:#FFF8E1,stroke:#F57F17,stroke-width:2px;
+    classDef ext fill:#F5F5F5,stroke:#757575,stroke-width:1.5px,stroke-dasharray: 4 4;
+
+    %% --- External Runtime Peers ---
+    subgraph External["External Runtime Environment"]
+        Phone["«external»<br/><b>Employee Phone</b>"]:::ext
+        Scanner["«external device»<br/><b>Optical QR Scanner</b>"]:::ext
+        CTRL["«external actuator»<br/><b>Turnstile Controller</b>"]:::ext
+        HUB["«external service»<br/><b>Central Hub API</b>"]:::ext
     end
-    GATE <-->|unlock and passage status| CTRL[Turnstile controller]
-    SYNC -. HTTPS batch, asynchronous .-> HUB[Central Hub ingestion API]
-    HUB -. deferred policy/key distribution .-> QR
-    HUB -. deferred policy/key distribution .-> POLICY
+
+    %% --- Process Boundary ---
+    subgraph Kiosk["Runtime Host Process: tmc_access"]
+        
+        %% Components & their Provided/Required Ports
+        subgraph C_API["Scan Receiver / API Boundary"]
+            API["<b>Scan Receiver</b><br/><i>prov: ScanIngressPort<br/>req: AccessCoordinatorPort</i>"]:::comp
+        end
+
+        subgraph C_COORD["AccessCoordinator"]
+            COORD["<b>AccessCoordinator</b><br/><i>prov: AccessCoordinatorPort<br/>req: ValidationPort, PolicyPort,<br/>AuditPersistencePort, GateControlPort,<br/>AttendancePersistencePort, UserFeedbackPort</i>"]:::comp
+        end
+
+        subgraph C_QR["PublicKeyQrValidator"]
+            QR["<b>PublicKeyQrValidator + ReplayGuardStore</b><br/><i>prov: ValidationPort<br/>req: PublicKeySnapshotPort, ReplayStatePort</i>"]:::comp
+        end
+
+        subgraph C_POLICY["AccessPolicyEvaluator"]
+            POLICY["<b>AccessPolicyEvaluator</b><br/><i>prov: PolicyPort<br/>req: PolicySnapshotPort</i>"]:::comp
+        end
+
+        subgraph C_DISPLAY["Kiosk Display / Annunciator"]
+            DISPLAY["<b>Kiosk Display</b><br/><i>prov: UserFeedbackPort</i>"]:::comp
+        end
+
+        subgraph C_GATE["TurnstileAdapter"]
+            GATE["<b>TurnstileAdapter</b><br/><i>prov: GateControlPort<br/>req: VendorHardwarePort</i>"]:::comp
+        end
+
+        subgraph C_DB["SQLite Repositories"]
+            DB[("<b>SQLite Repositories</b><br/><i>prov: AuditPersistencePort,<br/>AttendancePersistencePort,<br/>OutboxReadPort, OutboxStatusPort</i>")]:::store
+        end
+
+        subgraph C_SYNC["SyncService Worker"]
+            SYNC["<b>SyncService</b><br/><i>prov: SyncWorkerPort<br/>req: OutboxReadPort, OutboxStatusPort, HubBatchPort</i>"]:::comp
+        end
+
+    end
+
+    %% --- Connectors & Attachments (Roles & Protocols) ---
+
+    %% 1. Physical presentation
+    Phone -. "«optical presentation»" .-> Scanner
+
+    %% 2. Scanner ingress channel
+    Scanner == "«connector: Scanner Ingress Channel»<br/>roles: Publisher → Receiver" ==> API
+
+    %% 3. In-process method calls (Access path)
+    API -- "«connector: Method Call»<br/>roles: caller ↔ callee" --> COORD
+    COORD -- "«connector: Method Call»<br/>roles: caller ↔ callee" --> QR
+    COORD -- "«connector: Method Call»<br/>roles: caller ↔ callee" --> POLICY
+    COORD -- "«connector: Method Call»<br/>roles: caller ↔ callee" --> DISPLAY
+    COORD -- "«connector: Method Call»<br/>roles: caller ↔ callee" --> GATE
+
+    %% 4. SQLite local persistence connector
+    COORD == "«connector: Local Persistence (SQL C-API)»<br/>roles: client ↔ persistence service" ==> DB
+    SYNC == "«connector: Local Persistence (SQL C-API)»<br/>roles: client ↔ persistence service" ==> DB
+
+    %% 5. Hardware driver interface
+    GATE <== "«connector: Hardware Driver (Serial/USB/LAN)»<br/>roles: Master/Controller ↔ Actuator" ==> CTRL
+
+    %% 6. HTTPS batch channel & sync
+    SYNC <-. "«connector: HTTPS Batch Channel (TLS)»<br/>roles: Sender/Publisher ↔ Collector/Receiver" .-> HUB
+
+    %% 7. Policy / Key distribution
+    HUB -. "«connector: Policy/Key Sync (Deferred OD-09)»<br/>roles: Publisher ↔ Snapshot Receiver" .-> SYNC
+    SYNC -. "local snapshot cache update" .-> QR
+    SYNC -. "local snapshot cache update" .-> POLICY
 ```
 
 The diagram is a runtime interaction view, not a deployment guarantee. The
@@ -50,17 +115,22 @@ repository does not specify a kiosk service manager or a vendor protocol.
 
 ### Visual notation and semantic legend
 
-- **Boxes** are computational components. The `Kiosk process` border identifies
-  components executing inside the kiosk OS process; external devices and
-  services are outside that boundary.
-- **Solid arrows** represent synchronous control initiation. A bidirectional
-  solid arrow represents a request-response or polling handshake.
-- **Dashed arrows** represent asynchronous or deferred interactions. The
-  phone-to-scanner edge is a physical optical presentation; the SyncService
-  and policy/key distribution edges are asynchronous network interactions.
-- **Cylinders** represent persistent stores. The SQLite file is not drawn as a
-  separate top-level component because it is internal state of the repository
-  component.
+- **Boxes / Nodes** represent runtime computational components. Each component
+  explicitly enumerates its provided (`prov:`) and required (`req:`) ports,
+  matching the contracts in the Component Catalog.
+- **Cylinders** represent data store components (`SQLite Repositories`), which
+  manage persistent audit and transactional outbox state.
+- **Subgraphs / Boundaries**: The `Kiosk` process boundary groups components
+  colocated within the local OS process. The `External` boundary encapsulates
+  remote services and external hardware devices.
+- **Connectors**: Modeled as first-class interaction pathways annotated with
+  connector stereotypes and explicit attachment **roles** (`role A ↔ role B`):
+  - **Single solid arrows (`-- "..." -->`)**: Synchronous in-process method call
+    connectors (`caller ↔ callee`).
+  - **Thick solid arrows (`== "..." ==>` / `<== "..." ==>` )**: Inter-process and driver I/O
+    connectors (hardware serial/LAN bus, local SQLite C-API persistence).
+  - **Dashed arrows (`-. "..." .->` / `<-. "..." .->`)**: Network/asynchronous transport
+    connectors (HTTPS batch upload, deferred key distribution, optical presentation).
 
 ## 2. Runtime component catalog
 
