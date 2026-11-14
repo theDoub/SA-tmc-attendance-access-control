@@ -37,8 +37,9 @@ class AttendanceRecord:
     direction: Direction
     event_time: datetime
     confirmation_evidence: ConfirmationEvidence
-    controller_ack: GateAck
+    source_sequence: int
     policy_version: str
+    controller_ack: GateAck
     time_quality: TimeQuality = TimeQuality.RELIABLE
     sync_status: SyncStatus = SyncStatus.PENDING
 
@@ -47,3 +48,5 @@ class AttendanceRecord:
             raise ValueError("attendance record requires a policy version")
         if self.event_time.tzinfo is None:
             raise ValueError("attendance event time must be timezone-aware")
+        if type(self.source_sequence) is not int or self.source_sequence <= 0:
+            raise ValueError("attendance record requires a positive integer source_sequence")

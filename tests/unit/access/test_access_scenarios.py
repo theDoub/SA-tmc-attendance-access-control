@@ -69,6 +69,11 @@ class RecordingRepository:
         self.saved_attempts: list[AccessAttempt] = []
         self.updated_attempts: list[AccessAttempt] = []
         self.records: list[AttendanceRecord] = []
+        self.last_sequence = 0
+
+    def next_sequence(self) -> int:
+        self.last_sequence += 1
+        return self.last_sequence
 
     def save_attempt(self, attempt: AccessAttempt) -> None:
         if self.fail_first_save:
@@ -222,6 +227,7 @@ def test_confirmed_passage_creates_linked_attendance_and_outbox_record() -> None
     assert record.confirmation_evidence is ConfirmationEvidence.PASSAGE_CONFIRMED
     assert record.controller_ack.value == "ACKNOWLEDGED"
     assert record.policy_version == "policy-v7"
+    assert record.source_sequence == 1
 
 
 @pytest.mark.unit

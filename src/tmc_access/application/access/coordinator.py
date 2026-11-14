@@ -43,6 +43,7 @@ class AccessCoordinator:
         passage_window_seconds: int,
         clock: Callable[[], datetime] | None = None,
         uuid_factory: Callable[[], UUID] = uuid4,
+        sequence_factory: Callable[[], int] | None = None,
     ) -> None:
         if not factory_id:
             raise ValueError("factory_id must not be empty")
@@ -59,6 +60,7 @@ class AccessCoordinator:
         self._passage_window_seconds = passage_window_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
         self._uuid_factory = uuid_factory
+        self._sequence_factory = sequence_factory
 
     def handle_scan(self, scan: ScanInput) -> AccessAttempt:
         """Process one scan without depending on Hub availability.
@@ -175,6 +177,11 @@ class AccessCoordinator:
         event_time = self._clock()
         if event_time.tzinfo is None:
             raise ValueError("attendance clock must return a timezone-aware datetime")
+        source_seq = (
+            self._sequence_factory()
+            if self._sequence_factory is not None
+            else self._attendance_repository.next_sequence()
+        )
         record = AttendanceRecord(
             transaction_id=str(self._uuid_factory()),
             access_attempt_id=confirmed.access_attempt_id,
@@ -186,6 +193,7 @@ class AccessCoordinator:
             event_time=event_time,
             confirmation_evidence=ConfirmationEvidence.PASSAGE_CONFIRMED,
             controller_ack=GateAck.ACKNOWLEDGED,
+            source_sequence=source_seq,
             policy_version=policy_version,
         )
         self._attendance_repository.save_record_with_outbox(record)

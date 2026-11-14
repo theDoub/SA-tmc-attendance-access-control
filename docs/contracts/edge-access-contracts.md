@@ -91,10 +91,10 @@ A1 inconsistency to resolve (OD-04): A1 Figure 4 step 4B writes "attempt + pendi
 | | |
 |---|---|
 | Responsibility | Durable local storage of attempts and records [A1 Table 10 Local Store & Outbox] |
-| Operations | `save_attempt`, `update_attempt`, `save_record_with_outbox` (atomic; idempotent on `transaction_id`) |
-| Record fields | `transaction_id`, `access_attempt_id`, employee, factory/station/gate, direction, event time, confirmation evidence, sync status, time quality [A1 Table 30] |
+| Operations | `save_attempt`, `update_attempt`, `save_record_with_outbox` (atomic; idempotent on `transaction_id`), `next_sequence` |
+| Record fields | `transaction_id`, `access_attempt_id`, employee, factory/station/gate, direction, event time, confirmation evidence, `controller_ack`, `source_sequence`, `policy_version`, sync status, time quality [A1 Table 30, §3.5.5] |
 | Errors | `StorageError`: no unlock after a failed attempt write; never claim attendance success after a failed write; neither row may exist after a failed atomic write [A1 Tables 16/32] |
-| Pending | OD-11: sequence numbers (§3.5.5 mentions a source sequence); schema |
+| Pending | OD-11: sequence numbers are currently monotonic per kiosk SQLite DB (`next_sequence`); per-gate vs per-kiosk scope remains open for production confirmation |
 
 ### 2.5 Outbox Repository: `OutboxRepository` (owner: Nhật)
 `get_pending(batch_size)` (oldest first), `mark_synchronized(ids)` (only Hub-accepted ids), `mark_rejected(id, reason)` (quarantine, stop retries for that record only), `mark_conflict(id)` (never SYNCED) [A1 Table 31]. Retention (30 days after ack; pending never deleted), capacity alerts (70%/85%) [A1 §4.3.6] are operational and out of scaffold scope.
