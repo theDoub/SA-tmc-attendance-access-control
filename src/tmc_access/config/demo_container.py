@@ -115,7 +115,7 @@ class _DemoPolicyProvider(PolicySnapshotProvider):
             )
         return PolicySnapshot(
             version=DEMO_POLICY_VERSION,
-            refreshed_at=now,
+            refreshed_at=now - timedelta(seconds=1),
             subjects=tuple(subjects),
         )
 

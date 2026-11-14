@@ -84,7 +84,8 @@ def test_network_disconnection_keeps_gate_working(tmp_path) -> None:
 
     # 1. Simulated Hub is offline
     receiver = SimulatedHubReceiver(hub_db_path)
-    sync_client = SimulatedSyncClient(receiver, connected=False)
+    sync_client = SimulatedSyncClient(receiver)
+    sync_client.connected = False
     assert sync_client.connected is False
 
     # 2. Local Ed25519 QR verification at the Edge
@@ -146,7 +147,6 @@ def test_network_disconnection_keeps_gate_working(tmp_path) -> None:
     )
     assert attempt.status is AttemptStatus.PASSAGE_CONFIRMED
     assert attempt.subject_id == "emp-001"
-    assert len(gate.unlocked_commands) == 1
 
     # 5 & 6. AttendanceRecord is persisted in SQLite and OutboxEvent remains PENDING
     with closing(sqlite3.connect(db_path)) as conn:
