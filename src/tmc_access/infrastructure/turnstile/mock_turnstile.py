@@ -17,6 +17,8 @@ class MockScenario:
     passage: PassageStatus
 
     def __post_init__(self) -> None:
+        if not isinstance(self.ack, GateAck) or not isinstance(self.passage, PassageStatus):
+            raise ValueError("Scenario requires GateAck and PassageStatus enum values")
         no_open = {GateAck.REJECTED, GateAck.UNAVAILABLE}
         if self.ack in no_open and self.passage not in {
             PassageStatus.NOT_CONFIRMED,
@@ -68,9 +70,16 @@ SCENARIO_NAMES = (
 
 
 class MockTurnstileAdapter:
-    """Satisfies `GateAdapter`. `scenario` is a required argument on purpose."""
+    """Satisfies `GateAdapter` with immediate, scripted results, without sleeping.
+
+    Timeout and passage-window arguments are validated, not simulated by elapsed
+    wall time. TIMEOUT is an explicitly scripted uncertain result. No hardware
+    action, retry, attendance creation or persistence is performed by this mock.
+    """
 
     def __init__(self, scenario: MockScenario) -> None:
+        if not isinstance(scenario, MockScenario):
+            raise ValueError("An explicit MockScenario is required")
         self._scenario = scenario
         self._issued: dict[str, tuple[str, Direction]] = {}
 
@@ -82,10 +91,27 @@ class MockTurnstileAdapter:
     def unlock(
         self, command_id: str, gate_id: str, direction: Direction, timeout_ms: int
     ) -> GateCommandResult:
+        self._require_identifier(command_id, "command_id")
+        self._require_identifier(gate_id, "gate_id")
+        if not isinstance(direction, Direction):
+            raise GateError("direction must be a Direction enum value")
+        self._require_positive_integer(timeout_ms, "timeout_ms")
         self._issued[command_id] = (gate_id, direction)
         return GateCommandResult(command_id=command_id, ack=self._scenario.ack, detail="mock")
 
     def query_passage(self, command_id: str, window_seconds: int) -> PassageStatus:
+        self._require_identifier(command_id, "command_id")
+        self._require_positive_integer(window_seconds, "window_seconds")
         if command_id not in self._issued:
             raise GateError(f"Unknown command_id {command_id!r}")
         return self._scenario.passage
+
+    @staticmethod
+    def _require_identifier(value: str, name: str) -> None:
+        if not isinstance(value, str) or not value.strip():
+            raise GateError(f"{name} must be a non-empty string")
+
+    @staticmethod
+    def _require_positive_integer(value: int, name: str) -> None:
+        if type(value) is not int or value <= 0:
+            raise GateError(f"{name} must be a positive integer")

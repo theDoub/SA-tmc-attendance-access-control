@@ -21,7 +21,7 @@ def test_health(client) -> None:
 
 
 @pytest.mark.unit
-def test_scan_reports_not_implemented(client) -> None:
+def test_scan_processes_request_without_echoing_payload(client) -> None:
     body = {
         "request_id": "r1",
         "station_id": "s1",
@@ -30,7 +30,9 @@ def test_scan_reports_not_implemented(client) -> None:
         "payload": "synthetic-payload",
     }
     response = client.post("/scan", json=body)
-    assert response.status_code == 501
+    assert response.status_code == 200
+    assert response.json()["status"] == "DENIED"
+    assert response.json()["reason_code"] == "QR_MALFORMED"
     assert "synthetic-payload" not in response.text
 
 
